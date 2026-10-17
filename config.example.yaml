@@ -1,0 +1,47 @@
+# Copy this file to config.yaml and edit it for your Splunk environment.
+
+splunk:
+  url: https://splunk.example.internal:8000   # required: Splunk Web address, no trailing slash
+  locale: en-US                               # locale segment in Splunk Web URLs
+  login_timeout_seconds: 300                  # how long to wait for you to log in
+
+browser:
+  channel: msedge            # installed browser to use: msedge | chrome
+  headless: false            # must stay false: you log in by hand
+
+search:
+  earliest: -24h             # default time range start (override with --earliest)
+  latest: now                # default time range end (override with --latest)
+  timeout_seconds: 300       # per query
+
+fetch_mode: auto             # auto | proxy | ui  (auto = proxy, switching to ui if the proxy is blocked)
+
+session:
+  # Session Query. {input_api} is replaced with the Input API.
+  # Results must come out newest first: the tool keeps the first sessions_per_api distinct Session IDs.
+  query: >
+    index=gateway OR index=ms OR index=downstream "{input_api}"
+    | table _time sessionId
+  session_id_field: sessionId   # column holding the Session ID
+  sessions_per_api: 10          # most recent Sessions to analyse per Input API
+
+sequence:
+  # Sequence Query. {session_id} is replaced with one Session ID.
+  # Sort by time and output a millisecond timestamp plus one column per Layer.
+  query: >
+    index=gateway OR index=ms OR index=downstream sessionId="{session_id}"
+    | sort 0 _time
+    | eval Timestamp=strftime(_time, "%H:%M:%S.%3N")
+    | table Timestamp "Gateway API Endpoint" "Microservice Endpoint" "Downstream Integration (API)" "Downstream Integration (MQ)"
+  timestamp_field: Timestamp          # column holding the timestamp
+  timestamp_format: "%H:%M:%S.%f"     # Python strptime format of timestamp_field
+  ambiguity_window_ms: 500            # same-Layer calls this close are flagged AMBIGUOUS
+  layer_columns:                      # Layer name: column in the Sequence Query output
+    Gateway: Gateway API Endpoint
+    Microservice: Microservice Endpoint
+    Downstream API: Downstream Integration (API)
+    Downstream MQ: Downstream Integration (MQ)
+
+output:
+  dir: output                   # folder for the workbooks
+  filename_prefix: api_sequence # file name: <prefix>_<YYYYMMDD_HHMMSS>.xlsx
