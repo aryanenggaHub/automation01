@@ -33,6 +33,7 @@ class SplunkCfg:
 class BrowserCfg:
     channel: str
     headless: bool
+    ignore_https_errors: bool
 
 
 @dataclass(frozen=True)
@@ -124,9 +125,9 @@ def load_config(path: Path) -> Config:
     if fetch_mode not in FETCH_MODES:
         raise ConfigError(f"Config key 'fetch_mode' must be one of {', '.join(FETCH_MODES)}")
 
-    headless = browser.get("headless", False)
-    if not isinstance(headless, bool):
-        raise ConfigError("Config key 'browser.headless' must be true or false")
+    for key in ("headless", "ignore_https_errors"):
+        if not isinstance(browser.get(key, False), bool):
+            raise ConfigError(f"Config key 'browser.{key}' must be true or false")
 
     layer_columns = sequence.get("layer_columns", DEFAULT_LAYER_COLUMNS)
     if (
@@ -144,7 +145,8 @@ def load_config(path: Path) -> Config:
         ),
         browser=BrowserCfg(
             channel=_str(browser, "browser", "channel", "msedge"),
-            headless=headless,
+            headless=browser.get("headless", False),
+            ignore_https_errors=browser.get("ignore_https_errors", False),
         ),
         search=SearchCfg(
             earliest=str(search.get("earliest", "-24h")),

@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from .config import SequenceCfg, SessionCfg
 
+# Splunk's dedup drops events without the field; fill them first so a wrong
+# session_id_field shows up as this value instead of as zero rows.
+MISSING_SESSION_ID = "__NO_SESSION_ID__"
+
 
 def escape_spl(value: str) -> str:
     """Escape a value for use inside an SPL double-quoted string."""
@@ -19,7 +23,9 @@ def _finalize(query: str) -> str:
 
 def render_session_query(cfg: SessionCfg, input_api: str) -> str:
     query = cfg.query.replace("{input_api}", escape_spl(input_api)).strip()
-    query += f" | dedup {cfg.session_id_field} | head {cfg.sessions_per_api}"
+    field = cfg.session_id_field
+    # head N+1: the fill row may take one slot; the runner trims back to N.
+    query += f' | fillnull value="{MISSING_SESSION_ID}" {field} | dedup {field} | head {cfg.sessions_per_api + 1}'
     return _finalize(query)
 
 

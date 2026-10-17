@@ -38,6 +38,15 @@ def parse_export(text: str) -> list[Row]:
     return rows
 
 
+def _detail(body: str) -> str:
+    """Splunk's own error text from an error response, else the start of the body."""
+    try:
+        parse_export(body)
+    except SearchError as exc:
+        return str(exc)
+    return " ".join(body.split())[:200] or "empty response"
+
+
 def build_export_request(
     cfg: Config, query: str, earliest: str, latest: str, cookies: list[dict]
 ) -> tuple[str, dict[str, str], dict[str, str]]:
@@ -59,12 +68,14 @@ class ProxyFetcher:
     def run_search(self, query: str, earliest: str, latest: str) -> list[Row]:
         url, form, headers = build_export_request(self.cfg, query, earliest, latest, self.cookies())
         status, content_type, body = self.post(url, form, headers, self.cfg.search.timeout_seconds)
+        if status == 401 and "csrf" in body.lower():
+            raise SearchError(f"HTTP 401: Splunk rejected the CSRF token ({_detail(body)})")
         if status == 401 or 300 <= status < 400:
             raise LoginExpired(f"HTTP {status}")
         if status in (403, 404):
-            raise ProxyUnavailable(f"HTTP {status} from splunkd web proxy")
+            raise ProxyUnavailable(f"HTTP {status} from splunkd web proxy: {_detail(body)}")
         if status != 200:
-            raise SearchError(f"HTTP {status}")
+            raise SearchError(f"HTTP {status}: {_detail(body)}")
         if "text/html" in content_type.lower():
             raise LoginExpired("Splunk returned a web page instead of results")
         return parse_export(body)

@@ -77,6 +77,46 @@ def test_session_rows_without_id_field_is_error(cfg):
     assert result.status == ERROR and "sessionId" in result.error
 
 
+def test_missing_id_placeholder_ignored_and_ids_trimmed_to_limit(cfg):
+    rows = [{"sessionId": "__NO_SESSION_ID__"}] + [{"sessionId": f"s{i}"} for i in range(11)]
+    search = FakeSearch({"/a": rows}, {f"s{i}": [] for i in range(11)})
+    wb = FakeWorkbook()
+    run(["/a"], cfg, search, wb, log=lambda m: None)
+    assert [s.session_id for s in wb.added[0][1].sessions] == [f"s{i}" for i in range(10)]
+
+
+def test_only_missing_id_placeholder_is_error_naming_field(cfg):
+    wb = FakeWorkbook()
+    run(["/a"], cfg, FakeSearch({"/a": [{"sessionId": "__NO_SESSION_ID__"}]}, {}), wb, log=lambda m: None)
+    result = wb.added[0][1]
+    assert result.status == ERROR and "sessionId" in result.error
+
+
+def test_save_failure_warns_and_run_continues(cfg):
+    class LockedOnce(FakeWorkbook):
+        def save(self):
+            self.saves += 1
+            if self.saves == 1:
+                raise PermissionError("locked")
+
+    wb, logs = LockedOnce(), []
+    tally = run(["/a", "/b"], cfg, FakeSearch({"/a": [], "/b": []}, {}), wb, log=logs.append)
+    assert tally["NO_SESSION"] == 2 and wb.saves == 2
+    assert any("could not save" in m for m in logs)
+
+
+def test_failed_final_save_is_retried_at_end(cfg):
+    class LockedTwice(FakeWorkbook):
+        def save(self):
+            self.saves += 1
+            if self.saves == 1:
+                raise PermissionError("locked")
+
+    wb = LockedTwice()
+    run(["/a"], cfg, FakeSearch({"/a": []}, {}), wb, log=lambda m: None)
+    assert wb.saves == 2
+
+
 def test_error_keeps_completed_sessions_and_continues(cfg):
     search = FakeSearch(
         {"/a": [{"sessionId": "s1"}, {"sessionId": "s2"}], "/b": [{"sessionId": "s3"}]},

@@ -14,15 +14,20 @@ def wait_until(
     interval_s: float = 2.0,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    on_error: Callable[[Exception], None] | None = None,
 ) -> bool:
-    """Poll check until it returns True (-> True) or timeout_s passes (-> False). Exceptions count as not ready."""
+    """Poll check until it returns True (-> True) or timeout_s passes (-> False).
+
+    An exception from check counts as not ready and is passed to on_error.
+    """
     deadline = clock() + timeout_s
     while True:
         try:
             if check():
                 return True
-        except Exception:
-            pass
+        except Exception as exc:
+            if on_error is not None:
+                on_error(exc)
         if clock() >= deadline:
             return False
         sleep(interval_s)
@@ -43,7 +48,7 @@ class BrowserSession:
         self._browser = self._playwright.chromium.launch(
             channel=self.cfg.browser.channel, headless=self.cfg.browser.headless
         )
-        self.context = self._browser.new_context()
+        self.context = self._browser.new_context(ignore_https_errors=self.cfg.browser.ignore_https_errors)
         self.page = self.context.new_page()
         self.page.goto(self.cfg.splunk.url)
         return self
@@ -62,7 +67,15 @@ class BrowserSession:
 
     def wait_for_login(self) -> bool:
         print(f"Log in to Splunk in the browser window (waiting up to {self.cfg.splunk.login_timeout_seconds}s)...")
-        return wait_until(self._logged_in, self.cfg.splunk.login_timeout_seconds)
+        seen: set[str] = set()
+
+        def report(exc: Exception) -> None:
+            message = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+            if message not in seen:
+                seen.add(message)
+                print(f"  Login check failed: {message}")
+
+        return wait_until(self._logged_in, self.cfg.splunk.login_timeout_seconds, on_error=report)
 
     def post(self, url: str, form: dict[str, str], headers: dict[str, str], timeout_s: float) -> tuple[int, str, str]:
         response = self.context.request.post(

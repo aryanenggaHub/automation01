@@ -8,6 +8,7 @@ splunk:
 browser:
   channel: msedge            # installed browser to use: msedge | chrome
   headless: false            # must stay false: you log in by hand
+  ignore_https_errors: false # set true only if login is never detected because of certificate errors (internal CA)
 
 search:
   earliest: -24h             # default time range start (override with --earliest)

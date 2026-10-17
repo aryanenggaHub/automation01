@@ -24,7 +24,8 @@ def test_session_query_substitutes_appends_and_prefixes():
     cfg = session_cfg('index=gw "{input_api}" | table _time sessionId')
     assert (
         render_session_query(cfg, "/v1/a")
-        == 'search index=gw "/v1/a" | table _time sessionId | dedup sessionId | head 10'
+        == 'search index=gw "/v1/a" | table _time sessionId'
+        ' | fillnull value="__NO_SESSION_ID__" sessionId | dedup sessionId | head 11'
     )
 
 

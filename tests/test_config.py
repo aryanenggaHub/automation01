@@ -22,6 +22,7 @@ def test_minimal_config_gets_spec_defaults(tmp_path):
     assert cfg.splunk.url == "https://splunk.local:8000"
     assert cfg.splunk.locale == "en-US" and cfg.splunk.login_timeout_seconds == 300
     assert cfg.browser.channel == "msedge" and cfg.browser.headless is False
+    assert cfg.browser.ignore_https_errors is False
     assert (cfg.search.earliest, cfg.search.latest, cfg.search.timeout_seconds) == ("-24h", "now", 300)
     assert cfg.fetch_mode == "auto"
     assert cfg.session.session_id_field == "sessionId" and cfg.session.sessions_per_api == 10

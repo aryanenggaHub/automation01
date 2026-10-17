@@ -63,6 +63,20 @@ def test_run_search_maps_responses(cfg, status, ctype, exc):
         fetcher.run_search("search x", "-1h", "now")
 
 
+def test_non_200_error_includes_splunk_message(cfg):
+    body = '{"messages":[{"type":"FATAL","text":"Error in \'search\' command: bad"}]}'
+    fetcher = ProxyFetcher(cfg, lambda *a: (400, "application/json", body), lambda: [])
+    with pytest.raises(SearchError, match="HTTP 400.*Error in 'search' command: bad"):
+        fetcher.run_search("search x", "-1h", "now")
+
+
+def test_csrf_rejection_is_not_reported_as_login_expiry(cfg):
+    fetcher = ProxyFetcher(cfg, lambda *a: (401, "text/html", "<p>CSRF validation failed</p>"), lambda: [])
+    with pytest.raises(SearchError, match="CSRF") as info:
+        fetcher.run_search("search x", "-1h", "now")
+    assert not isinstance(info.value, LoginExpired)
+
+
 def test_run_search_passes_timeout_and_returns_rows(cfg):
     calls = []
 

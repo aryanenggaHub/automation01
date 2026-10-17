@@ -28,13 +28,13 @@ Edit `config.yaml`: set `splunk.url` and write your two queries (see below). Eac
 - `--earliest` / `--latest`: override the config's time range for this run only (any Splunk time string).
 - `--config`: use a config file other than `config.yaml`.
 
-A browser window opens at your Splunk URL. Log in there (SSO/MFA works); the tool continues as soon as it detects the login. The workbook is written to `output/api_sequence_<YYYYMMDD_HHMMSS>.xlsx` and saved after every API, so a crash keeps finished work.
+A browser window opens at your Splunk URL. Log in there (SSO/MFA works); the tool continues as soon as it detects the login. The workbook is written to `output/api_sequence_<YYYYMMDD_HHMMSS>.xlsx` and saved after every API, so a crash keeps finished work. If you open it in Excel mid-run, saves fail with a warning and are retried; close it to let the run save again.
 
 Exit codes: `0` run completed (some APIs may still be `NO_SESSION`/`ERROR`), `1` bad config, bad arguments or missing input file, `2` login not detected in time.
 
 ## Writing the two queries
 
-**Session Query** (`session.query`): `{input_api}` is replaced with the endpoint, escaped for use inside double quotes. It must output a column named by `session.session_id_field` (default `sessionId`), **newest first**. The tool appends `| dedup <field> | head <sessions_per_api>`, so the first N distinct Session IDs it returns are the ones analysed. Write it to match the endpoint in every Layer's logs.
+**Session Query** (`session.query`): `{input_api}` is replaced with the endpoint, escaped for use inside double quotes. It must output a column named by `session.session_id_field` (default `sessionId`), **newest first**. The tool appends `| fillnull ... | dedup <field> | head ...`, so the first `sessions_per_api` distinct Session IDs it returns are the ones analysed. If no result has that field (e.g. a misspelt `session_id_field`), the API is reported as `ERROR` naming the field. Write it to match the endpoint in every Layer's logs.
 
 **Sequence Query** (`sequence.query`): `{session_id}` is replaced with one Session ID. It must:
 - sort by time (`| sort 0 _time`); the tool never re-sorts rows,
@@ -70,7 +70,7 @@ If your login expires mid-run, the tool asks you to log in again in the open bro
 
 ## Manual verification checklist (inside your network)
 
-- [ ] Login with SSO is detected and the run starts.
+- [ ] Login with SSO is detected and the run starts. If it is never detected and the console shows `Login check failed: ... certificate ...`, your Splunk uses an internal CA that the tool's HTTP client (Node, not Edge) doesn't trust. Either set the environment variable `NODE_EXTRA_CA_CERTS` to your CA's `.pem` file (preferred), or set `browser.ignore_https_errors: true`.
 - [ ] Proxy export returns rows (CSRF header accepted). If every API is `ERROR` with `HTTP 401`/`403`, this is the part to fix in `splunk_seq/fetch_proxy.py`.
 - [ ] A 2–3 API list yields a workbook with working Index hyperlinks.
 - [ ] Expiring the login mid-run triggers the re-login prompt and the run continues.

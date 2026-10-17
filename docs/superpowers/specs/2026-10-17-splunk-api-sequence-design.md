@@ -93,7 +93,7 @@ output:
 - Substitute **only** the literal tokens `{input_api}` and `{session_id}` (plain string replace). Do **not** use `str.format`; SPL may legitimately contain other braces.
 - Before substitution, escape the value for use inside an SPL double-quoted string: `\` → `\\`, `"` → `\"`.
 - If the final query does not start with `search ` or `|` (after stripping), prefix it with `search `.
-- The tool appends to the Session Query: ` | dedup <session_id_field> | head <sessions_per_api>`. Dedup keeps the first occurrence, so the query's own order defines "most recent"; the example config's comment must state the newest-first requirement.
+- The tool appends to the Session Query: ` | fillnull value="__NO_SESSION_ID__" <session_id_field> | dedup <session_id_field> | head <sessions_per_api + 1>`, then ignores the `__NO_SESSION_ID__` value and keeps the first `sessions_per_api` IDs. Dedup keeps the first occurrence, so the query's own order defines "most recent"; the example config's comment must state the newest-first requirement. (Amended after review: a bare `dedup` drops events lacking the field, so a misspelt `session_id_field` would read as `NO_SESSION` instead of an error naming the field.)
 
 ## 6. Run flow
 

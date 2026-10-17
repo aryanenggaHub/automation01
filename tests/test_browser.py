@@ -37,4 +37,6 @@ def test_wait_until_treats_check_exception_as_not_ready():
             raise answer
         return answer
 
-    assert wait_until(check, 10, 2.0, fake.sleep, fake.clock) is True
+    errors = []
+    assert wait_until(check, 10, 2.0, fake.sleep, fake.clock, on_error=errors.append) is True
+    assert [str(e) for e in errors] == ["connection reset"]
