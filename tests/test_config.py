@@ -21,10 +21,8 @@ def test_minimal_config_gets_spec_defaults(tmp_path):
     cfg = load_config(write(tmp_path, MIN))
     assert cfg.splunk.url == "https://splunk.local:8000"
     assert cfg.splunk.locale == "en-US" and cfg.splunk.login_timeout_seconds == 300
-    assert cfg.browser.channel == "msedge" and cfg.browser.headless is False
-    assert cfg.browser.ignore_https_errors is False
+    assert cfg.browser.channel == "msedge" and cfg.browser.ignore_https_errors is False
     assert (cfg.search.earliest, cfg.search.latest, cfg.search.timeout_seconds) == ("-24h", "now", 300)
-    assert cfg.fetch_mode == "auto"
     assert cfg.session.session_id_field == "sessionId" and cfg.session.sessions_per_api == 10
     assert cfg.sequence.timestamp_field == "Timestamp"
     assert cfg.sequence.timestamp_format == "%H:%M:%S.%f"
@@ -50,11 +48,6 @@ def test_missing_required_key_is_named(tmp_path, key, line):
     text = MIN.replace(line, "")
     with pytest.raises(ConfigError, match=key.replace(".", r"\.")):
         load_config(write(tmp_path, text))
-
-
-def test_invalid_fetch_mode_rejected(tmp_path):
-    with pytest.raises(ConfigError, match="fetch_mode"):
-        load_config(write(tmp_path, MIN + "fetch_mode: fast\n"))
 
 
 def test_non_positive_int_rejected(tmp_path):

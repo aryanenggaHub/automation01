@@ -8,6 +8,6 @@ Splunk Enterprise sits inside the organization network behind an interactive (li
 
 ## Considered Options
 
-- **Scrape the results table in the Search UI**: rejected as the primary path because results are paginated, long cells are truncated, and the DOM changes across Splunk versions. Kept as the fallback if the web proxy is blocked.
+- **Scrape the results table in the Search UI**: rejected as the primary path because results are paginated, long cells are truncated, and the DOM changes across Splunk versions. Not built in v1; it becomes the fallback only if the web proxy proves blocked in the target network.
 - **Splunk REST API on port 8089 with a token**: rejected because users usually cannot reach 8089 or mint tokens in this environment, and it bypasses the SSO login the user already has.
 - **Drive Excel to paste results**: rejected; the workbook is written directly instead, so Excel need not be running.

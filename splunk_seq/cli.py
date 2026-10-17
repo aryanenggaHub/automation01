@@ -9,21 +9,18 @@ from pathlib import Path
 
 from .browser import BrowserSession
 from .config import ConfigError, load_config, with_overrides
-from .fetch import AutoFetcher, UiFetcher, with_relogin
+from .fetch import with_relogin
 from .fetch_proxy import ProxyFetcher
 from .runner import run
 from .workbook import SequenceWorkbook, output_path
 
 
-def load_input_apis(text: str) -> tuple[list[str], list[str]]:
-    apis: list[str] = []
-    duplicates: list[str] = []
-    for line in text.splitlines():
-        api = line.strip()
-        if not api or api.startswith("#"):
-            continue
-        (duplicates if api in apis else apis).append(api)
-    return apis, duplicates
+def load_input_apis(text: str) -> tuple[list[str], int]:
+    """Return (unique Input APIs in order, number of duplicates skipped)."""
+    lines = [line.strip() for line in text.splitlines()]
+    kept = [line for line in lines if line and not line.startswith("#")]
+    apis = list(dict.fromkeys(kept))
+    return apis, len(kept) - len(apis)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,22 +41,7 @@ def _error(message: str) -> int:
     return 1
 
 
-def _join_time_values(argv: list[str]) -> list[str]:
-    """Let `--earliest -1h` work: argparse would read the Splunk time `-1h` as an option."""
-    joined: list[str] = []
-    i = 0
-    while i < len(argv):
-        if argv[i] in ("--earliest", "--latest") and i + 1 < len(argv):
-            joined.append(f"{argv[i]}={argv[i + 1]}")
-            i += 2
-        else:
-            joined.append(argv[i])
-            i += 1
-    return joined
-
-
 def main(argv: list[str] | None = None) -> int:
-    argv = _join_time_values(sys.argv[1:] if argv is None else argv)
     try:
         args = build_parser().parse_args(argv)
     except SystemExit as exc:
@@ -75,9 +57,9 @@ def main(argv: list[str] | None = None) -> int:
             text = Path(args.file).read_text(encoding="utf-8-sig")
         except OSError as exc:
             return _error(f"cannot read input file {args.file}: {exc.strerror or exc}")
-        apis, duplicates = load_input_apis(text)
-        for dup in dict.fromkeys(duplicates):
-            print(f"Warning: duplicate Input API skipped: {dup}")
+        apis, skipped = load_input_apis(text)
+        if skipped:
+            print(f"Warning: {skipped} duplicate Input API line(s) skipped")
     else:
         apis = [args.api.strip()]
     if not apis:
@@ -89,10 +71,7 @@ def main(argv: list[str] | None = None) -> int:
         if not session.wait_for_login():
             print("Error: login was not detected in time", file=sys.stderr)
             return 2
-        proxy = ProxyFetcher(cfg, session.post, session.cookies).run_search
-        ui = UiFetcher(session.page).run_search
-        search = {"proxy": proxy, "ui": ui}.get(cfg.fetch_mode) or AutoFetcher(proxy, ui, print).run_search
-        search = with_relogin(search, session.wait_for_login, print)
+        search = with_relogin(ProxyFetcher(cfg, session.post, session.cookies).run_search, session.wait_for_login, print)
 
         path = output_path(cfg.output, datetime.now())
         tally = run(apis, cfg, search, SequenceWorkbook(path, len(apis)))

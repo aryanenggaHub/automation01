@@ -7,15 +7,12 @@ splunk:
 
 browser:
   channel: msedge            # installed browser to use: msedge | chrome
-  headless: false            # must stay false: you log in by hand
   ignore_https_errors: false # set true only if login is never detected because of certificate errors (internal CA)
 
 search:
   earliest: -24h             # default time range start (override with --earliest)
   latest: now                # default time range end (override with --latest)
   timeout_seconds: 300       # per query
-
-fetch_mode: auto             # auto | proxy | ui  (auto = proxy, switching to ui if the proxy is blocked)
 
 session:
   # Session Query. {input_api} is replaced with the Input API.

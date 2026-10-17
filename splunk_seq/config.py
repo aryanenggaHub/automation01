@@ -8,8 +8,6 @@ from pathlib import Path
 
 import yaml
 
-FETCH_MODES = ("auto", "proxy", "ui")
-
 DEFAULT_LAYER_COLUMNS = {
     "Gateway": "Gateway API Endpoint",
     "Microservice": "Microservice Endpoint",
@@ -32,7 +30,6 @@ class SplunkCfg:
 @dataclass(frozen=True)
 class BrowserCfg:
     channel: str
-    headless: bool
     ignore_https_errors: bool
 
 
@@ -70,7 +67,6 @@ class Config:
     splunk: SplunkCfg
     browser: BrowserCfg
     search: SearchCfg
-    fetch_mode: str
     session: SessionCfg
     sequence: SequenceCfg
     output: OutputCfg
@@ -121,13 +117,8 @@ def load_config(path: Path) -> Config:
     sequence = _section(raw, "sequence")
     output = _section(raw, "output")
 
-    fetch_mode = raw.get("fetch_mode", "auto")
-    if fetch_mode not in FETCH_MODES:
-        raise ConfigError(f"Config key 'fetch_mode' must be one of {', '.join(FETCH_MODES)}")
-
-    for key in ("headless", "ignore_https_errors"):
-        if not isinstance(browser.get(key, False), bool):
-            raise ConfigError(f"Config key 'browser.{key}' must be true or false")
+    if not isinstance(browser.get("ignore_https_errors", False), bool):
+        raise ConfigError("Config key 'browser.ignore_https_errors' must be true or false")
 
     layer_columns = sequence.get("layer_columns", DEFAULT_LAYER_COLUMNS)
     if (
@@ -145,7 +136,6 @@ def load_config(path: Path) -> Config:
         ),
         browser=BrowserCfg(
             channel=_str(browser, "browser", "channel", "msedge"),
-            headless=browser.get("headless", False),
             ignore_https_errors=browser.get("ignore_https_errors", False),
         ),
         search=SearchCfg(
@@ -153,7 +143,6 @@ def load_config(path: Path) -> Config:
             latest=str(search.get("latest", "now")),
             timeout_seconds=_positive_int(search, "search", "timeout_seconds", 300),
         ),
-        fetch_mode=fetch_mode,
         session=SessionCfg(
             query=_required_str(session, "session", "query"),
             session_id_field=_str(session, "session", "session_id_field", "sessionId"),
@@ -174,9 +163,5 @@ def load_config(path: Path) -> Config:
 
 
 def with_overrides(cfg: Config, earliest: str | None, latest: str | None) -> Config:
-    search = dataclasses.replace(
-        cfg.search,
-        earliest=earliest if earliest is not None else cfg.search.earliest,
-        latest=latest if latest is not None else cfg.search.latest,
-    )
+    search = dataclasses.replace(cfg.search, earliest=earliest or cfg.search.earliest, latest=latest or cfg.search.latest)
     return dataclasses.replace(cfg, search=search)

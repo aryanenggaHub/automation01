@@ -115,6 +115,8 @@ If a search request returns 401, or is redirected to a login page (HTML instead 
 
 ## 7. Fetching search results
 
+> **Amended after simplification review:** v1 ships **proxy mode only**. `fetch_mode`, `auto`/`ui` modes and `browser.headless` were removed from code and config (headless is always false). A blocked proxy shows as `ERROR` with the HTTP status; the UI fallback below is built only if that happens (plan Task 8), at which point mode selection comes back with it. CLI time overrides use the `--earliest=-1h` form.
+
 ### `proxy` mode (primary)
 
 - `POST {url}/{locale}/splunkd/__raw/services/search/jobs/export` using the **browser context's** request API (shares the login cookies).

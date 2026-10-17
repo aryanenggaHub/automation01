@@ -55,7 +55,7 @@ def captured(monkeypatch):
 
 
 def test_load_input_apis_skips_comments_blanks_and_dedupes():
-    assert load_input_apis(" /a \n\n# c\n  # c2\n/b\n/a\n") == (["/a", "/b"], ["/a"])
+    assert load_input_apis(" /a \n\n# c\n  # c2\n/b\n/a\n") == (["/a", "/b"], 1)
 
 
 def test_main_strips_utf8_bom(tmp_path, config_file, captured):
@@ -66,7 +66,7 @@ def test_main_strips_utf8_bom(tmp_path, config_file, captured):
 
 
 def test_cli_overrides_time_range(config_file, captured):
-    assert main(["run", "--api", "/a", "--config", str(config_file), "--earliest", "-1h"]) == 0
+    assert main(["run", "--api", "/a", "--config", str(config_file), "--earliest=-1h"]) == 0
     assert captured["cfg"].search.earliest == "-1h"
 
 

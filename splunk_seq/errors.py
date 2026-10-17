@@ -7,7 +7,3 @@ class SearchError(Exception):
 
 class LoginExpired(SearchError):
     """Splunk no longer accepts the browser's login."""
-
-
-class ProxyUnavailable(SearchError):
-    """The splunkd web proxy is blocked or missing."""

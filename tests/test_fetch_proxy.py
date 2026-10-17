@@ -1,7 +1,7 @@
 import pytest
 
 from splunk_seq.config import load_config
-from splunk_seq.errors import LoginExpired, ProxyUnavailable, SearchError
+from splunk_seq.errors import LoginExpired, SearchError
 from splunk_seq.fetch_proxy import ProxyFetcher, build_export_request, parse_export
 
 
@@ -52,8 +52,6 @@ def test_build_request_without_csrf_cookie_omits_header(cfg):
         (401, "application/json", LoginExpired),
         (302, "text/html", LoginExpired),
         (200, "text/html; charset=utf-8", LoginExpired),
-        (403, "text/html", ProxyUnavailable),
-        (404, "text/html", ProxyUnavailable),
         (500, "application/json", SearchError),
     ],
 )

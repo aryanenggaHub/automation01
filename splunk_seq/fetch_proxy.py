@@ -6,7 +6,7 @@ import json
 from typing import Callable
 
 from .config import Config
-from .errors import LoginExpired, ProxyUnavailable, SearchError
+from .errors import LoginExpired, SearchError
 from .models import Row
 
 # (url, form, headers, timeout_s) -> (status, content_type, body)
@@ -72,8 +72,6 @@ class ProxyFetcher:
             raise SearchError(f"HTTP 401: Splunk rejected the CSRF token ({_detail(body)})")
         if status == 401 or 300 <= status < 400:
             raise LoginExpired(f"HTTP {status}")
-        if status in (403, 404):
-            raise ProxyUnavailable(f"HTTP {status} from splunkd web proxy: {_detail(body)}")
         if status != 200:
             raise SearchError(f"HTTP {status}: {_detail(body)}")
         if "text/html" in content_type.lower():

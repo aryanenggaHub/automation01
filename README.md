@@ -21,11 +21,11 @@ Edit `config.yaml`: set `splunk.url` and write your two queries (see below). Eac
 ```
 .venv\Scripts\python -m splunk_seq run --api /v1/customers/accounts
 .venv\Scripts\python -m splunk_seq run --file apis.txt
-.venv\Scripts\python -m splunk_seq run --file apis.txt --earliest -4h --latest -1h
+.venv\Scripts\python -m splunk_seq run --file apis.txt --earliest=-4h --latest=-1h
 ```
 
 - `--file`: one endpoint per line. Blank lines and lines starting with `#` are ignored, and duplicates are skipped with a warning.
-- `--earliest` / `--latest`: override the config's time range for this run only (any Splunk time string).
+- `--earliest` / `--latest`: override the config's time range for this run only (any Splunk time string). Use the `=` form (`--earliest=-4h`), because a value starting with `-` would otherwise be read as an option.
 - `--config`: use a config file other than `config.yaml`.
 
 A browser window opens at your Splunk URL. Log in there (SSO/MFA works); the tool continues as soon as it detects the login. The workbook is written to `output/api_sequence_<YYYYMMDD_HHMMSS>.xlsx` and saved after every API, so a crash keeps finished work. If you open it in Excel mid-run, saves fail with a warning and are retried; close it to let the run save again.
@@ -62,9 +62,9 @@ Every column the query outputs is copied to Excel in the same order.
 
 **Known limitation:** timestamps are time-of-day, so a Session that crosses midnight can be flagged wrongly.
 
-## Fetch modes
+## How results are fetched
 
-`fetch_mode: auto` (default) runs searches through Splunk Web's built-in proxy using your browser login, and gets full results as JSON (see [ADR 0001](docs/adr/0001-browser-login-with-splunkd-web-proxy.md)). If that proxy is blocked, `auto` switches to reading the Search page, but **that UI fallback is not built yet**. It needs your real Splunk to build against (plan Task 8). Until then, a blocked proxy shows up as `ERROR` on every API.
+Searches run through Splunk Web's built-in proxy using your browser login, and come back as full JSON results (see [ADR 0001](docs/adr/0001-browser-login-with-splunkd-web-proxy.md)). If that proxy is blocked, every API shows `ERROR` with the HTTP status. A fallback that reads the Search page would then be built against your real Splunk (plan Task 8).
 
 If your login expires mid-run, the tool asks you to log in again in the open browser and retries once.
 

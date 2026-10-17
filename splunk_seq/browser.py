@@ -45,19 +45,15 @@ class BrowserSession:
         from playwright.sync_api import sync_playwright
 
         self._playwright = sync_playwright().start()
-        self._browser = self._playwright.chromium.launch(
-            channel=self.cfg.browser.channel, headless=self.cfg.browser.headless
-        )
+        self._browser = self._playwright.chromium.launch(channel=self.cfg.browser.channel, headless=False)
         self.context = self._browser.new_context(ignore_https_errors=self.cfg.browser.ignore_https_errors)
         self.page = self.context.new_page()
         self.page.goto(self.cfg.splunk.url)
         return self
 
     def __exit__(self, *exc) -> bool:
-        if self._browser is not None:
-            self._browser.close()
-        if self._playwright is not None:
-            self._playwright.stop()
+        self._browser.close()
+        self._playwright.stop()
         return False
 
     def _logged_in(self) -> bool:
