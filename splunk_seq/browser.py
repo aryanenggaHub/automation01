@@ -48,8 +48,9 @@ def wait_until(
 
 
 class BrowserSession:
-    def __init__(self, cfg: Config, should_stop: Callable[[], bool] = lambda: False):
+    def __init__(self, cfg: Config, should_stop: Callable[[], bool] = lambda: False, log: Callable[[str], None] = print):
         self.cfg = cfg
+        self.log = log
         self.should_stop = should_stop
         self._playwright = None
         self.context = None
@@ -89,14 +90,14 @@ class BrowserSession:
         return response.status == 200 and "json" in response.headers.get("content-type", "")
 
     def wait_for_login(self) -> bool:
-        print(f"Log in to Splunk in the browser window (waiting up to {self.cfg.splunk.login_timeout_seconds}s)...")
+        self.log(f"Log in to Splunk in the browser window (waiting up to {self.cfg.splunk.login_timeout_seconds}s)...")
         seen: set[str] = set()
 
         def report(exc: Exception) -> None:
             message = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
             if message not in seen:
                 seen.add(message)
-                print(f"  Login check failed: {message}")
+                self.log(f"  Login check failed: {message}")
 
         return wait_until(self._logged_in, self.cfg.splunk.login_timeout_seconds, on_error=report, should_stop=self.should_stop)
 

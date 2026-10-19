@@ -2,6 +2,7 @@ import pytest
 
 import splunk_seq.cli as cli
 from splunk_seq.cli import load_input_apis, main
+from splunk_seq.job import JobResult
 
 
 @pytest.fixture
@@ -18,39 +19,16 @@ def config_file(tmp_path):
     return p
 
 
-class FakeBrowser:
-    logged_in = True
-
-    def __init__(self, cfg):
-        self.page = None
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-    def wait_for_login(self):
-        return self.logged_in
-
-    def post(self, url, form, headers, timeout_s):
-        return 200, "application/json", ""
-
-    def cookies(self):
-        return []
-
-
 @pytest.fixture
 def captured(monkeypatch):
     seen = {}
 
-    def fake_run(apis, cfg, search, workbook, log=print):
+    def fake_execute(cfg, apis, log, should_stop=lambda: False):
         seen["apis"] = apis
         seen["cfg"] = cfg
-        return {"OK": len(apis), "NO_SESSION": 0, "ERROR": 0}
+        return JobResult(seen.get("exit_code", 0), None, None, {"OK": len(apis), "NO_SESSION": 0, "ERROR": 0})
 
-    monkeypatch.setattr(cli, "BrowserSession", FakeBrowser)
-    monkeypatch.setattr(cli, "run", fake_run)
+    monkeypatch.setattr(cli, "execute", fake_execute)
     return seen
 
 
@@ -82,6 +60,6 @@ def test_missing_input_file_returns_1(tmp_path, config_file, captured):
     assert main(["run", "--file", str(tmp_path / "nope.txt"), "--config", str(config_file)]) == 1
 
 
-def test_login_timeout_returns_2(config_file, captured, monkeypatch):
-    monkeypatch.setattr(FakeBrowser, "logged_in", False)
+def test_exit_code_comes_from_job(config_file, captured):
+    captured["exit_code"] = 2
     assert main(["run", "--api", "/a", "--config", str(config_file)]) == 2

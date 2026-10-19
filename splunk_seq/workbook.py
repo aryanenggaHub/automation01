@@ -26,8 +26,8 @@ def sheet_name(index: int, total: int, endpoint: str) -> str:
     return name[:MAX_SHEET_NAME]
 
 
-def output_path(cfg: OutputCfg, now: datetime) -> Path:
-    return Path(cfg.dir) / f"{cfg.filename_prefix}_{now:%Y%m%d_%H%M%S}.xlsx"
+def output_path(cfg: OutputCfg, now: datetime, base: Path = Path(".")) -> Path:
+    return base / cfg.dir / f"{cfg.filename_prefix}_{now:%Y%m%d_%H%M%S}.xlsx"
 
 
 def _set(ws, row: int, col: int, value):

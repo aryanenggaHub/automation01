@@ -4,15 +4,10 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime
 from pathlib import Path
 
-from .browser import BrowserSession
 from .config import ConfigError, load_config, with_overrides
-from .fetch import with_relogin
-from .fetch_proxy import ProxyFetcher
-from .runner import run
-from .workbook import SequenceWorkbook, output_path
+from .job import execute
 
 
 def load_input_apis(text: str) -> tuple[list[str], int]:
@@ -67,15 +62,4 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = with_overrides(cfg, args.earliest, args.latest)
 
-    with BrowserSession(cfg) as session:
-        if not session.wait_for_login():
-            print("Error: login was not detected in time", file=sys.stderr)
-            return 2
-        search = with_relogin(ProxyFetcher(cfg, session.post, session.cookies).run_search, session.wait_for_login, print)
-
-        path = output_path(cfg.output, datetime.now())
-        tally = run(apis, cfg, search, SequenceWorkbook(path, len(apis)))
-
-    print(f"Wrote {path}")
-    print(" ".join(f"{status}={count}" for status, count in tally.items()))
-    return 0
+    return execute(cfg, apis, print).exit_code

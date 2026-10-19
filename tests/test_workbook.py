@@ -39,6 +39,11 @@ def test_sheet_name_rules():
     assert sheet_name(3, 5, "/") == "003"
 
 
+def test_output_path_relative_to_base():
+    base = Path("C:/app")
+    assert output_path(OutputCfg("output", "p"), datetime(2026, 10, 19, 9, 30, 0), base) == base / "output" / "p_20261019_093000.xlsx"
+
+
 def test_output_path():
     assert output_path(OutputCfg("output", "api_sequence"), datetime(2026, 10, 17, 14, 23, 1)) == Path(
         "output/api_sequence_20261017_142301.xlsx"
