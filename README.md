@@ -12,7 +12,7 @@ No Python or installs needed. You only need Google Chrome (or Microsoft Edge).
 2. Unzip it into a local folder you can write to that OneDrive does **not** sync, for example `C:\Users\<you>\SplunkSequence` (not Program Files). On company laptops Documents and Desktop are often OneDrive-synced, and syncing the app's live browser profile can corrupt it. The app keeps its settings, browser profile and results in that folder.
 3. Double-click `SplunkSequence.exe`. If Windows SmartScreen warns about an unrecognised app, choose **More info → Run anyway** (the app isn't code-signed).
 
-If Chrome never opens or never reacts, open `chrome://policy` in Chrome and search for **RemoteDebugging**. If `RemoteDebuggingAllowed` is `false`, your company blocks browser automation in Chrome; switch **Browser** to **Edge** in the app.
+If Chrome never opens or never reacts, open `chrome://policy` in Chrome and search for **RemoteDebugging**. If `RemoteDebuggingAllowed` is `false`, your company blocks browser automation in Chrome; set **Browser** to `msedge` (Microsoft Edge) in the app.
 
 ## Using the window
 

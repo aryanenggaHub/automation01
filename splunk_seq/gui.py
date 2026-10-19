@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import os
 import queue
-import sys
 import threading
-import traceback
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -14,27 +12,17 @@ from tkinter.scrolledtext import ScrolledText
 
 from . import __version__
 from .cli import load_input_apis
-from .config import ConfigError, load_raw_or_default, save_config
-from .form import CHANNEL_LABELS, FIELDS, form_to_raw, raw_to_form
+from .config import CHANNELS, ConfigError, load_raw_or_default, save_config
+from .form import FIELDS, form_to_raw, raw_to_form
 from .job import JobResult, execute
 from .paths import app_dir, resolve_in_app
 
 CONFIG_NAME = "config.yaml"
 EXAMPLE_NAME = "config.example.yaml"
-LABEL_TO_CHANNEL = {label: value for value, label in CHANNEL_LABELS.items()}
 
 
 def example_path() -> Path:
-    """config.example.yaml beside the exe, else the copy bundled inside it."""
-    local = app_dir() / EXAMPLE_NAME
-    if local.exists() or not getattr(sys, "frozen", False):
-        return local
-    return Path(getattr(sys, "_MEIPASS", app_dir())) / EXAMPLE_NAME
-
-
-class _Done:
-    def __init__(self, result: JobResult):
-        self.result = result
+    return app_dir() / EXAMPLE_NAME
 
 
 class App:
@@ -123,7 +111,7 @@ class App:
             self.vars[field.key] = var
         elif field.kind == "choice":
             var = tk.StringVar()
-            widget = ttk.Combobox(parent, textvariable=var, values=list(CHANNEL_LABELS.values()), state="readonly", width=12)
+            widget = ttk.Combobox(parent, textvariable=var, values=list(CHANNELS), state="readonly", width=12)
             self.vars[field.key] = var
         else:
             var = tk.StringVar()
@@ -148,9 +136,6 @@ class App:
         for field in FIELDS:
             if field.kind == "multiline":
                 values[field.key] = self.texts[field.key].get("1.0", "end-1c")
-            elif field.kind == "choice":
-                label = self.vars[field.key].get()
-                values[field.key] = LABEL_TO_CHANNEL.get(label, label)
             else:
                 values[field.key] = self.vars[field.key].get()
         return values
@@ -162,8 +147,6 @@ class App:
                 text = self.texts[field.key]
                 text.delete("1.0", "end")
                 text.insert("1.0", str(value).rstrip("\n"))
-            elif field.kind == "choice":
-                self.vars[field.key].set(CHANNEL_LABELS.get(str(value), str(value)))
             else:
                 self.vars[field.key].set(value)
 
@@ -229,12 +212,8 @@ class App:
         self.worker.start()
 
     def _work(self, cfg, apis: list[str]) -> None:
-        try:
-            result = execute(cfg, apis, self.messages.put, self.stop_event.is_set)
-        except Exception:  # never let the worker die silently
-            self.messages.put("Unexpected error:\n" + traceback.format_exc())
-            result = JobResult(1, None, None)
-        self.messages.put(_Done(result))
+        # execute() catches its own failures and always returns a JobResult.
+        self.messages.put(execute(cfg, apis, self.messages.put, self.stop_event.is_set))
 
     def stop(self) -> None:
         self.stop_event.set()
@@ -262,8 +241,8 @@ class App:
         try:
             while True:
                 item = self.messages.get_nowait()
-                if isinstance(item, _Done):
-                    self._finish(item.result)
+                if isinstance(item, JobResult):
+                    self._finish(item)
                 else:
                     self.log(str(item))
         except queue.Empty:

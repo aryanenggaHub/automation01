@@ -14,8 +14,6 @@ class Field:
     advanced: bool = False
 
 
-CHANNEL_LABELS = {"chrome": "Chrome", "msedge": "Edge"}
-
 _LAYERS = "sequence.layer_columns."
 
 FIELDS = [
@@ -40,19 +38,24 @@ FIELDS = [
 ]
 
 
-def _get(raw: dict, key: str):
+def _parent(raw: dict, key: str, create: bool = False) -> tuple[dict | None, str]:
+    """The dict holding a dotted key's last part (created on the way if asked), plus that part."""
+    *parents, last = key.split(".")
     node = raw
-    for part in key.split("."):
-        if not isinstance(node, dict):
-            return None
-        node = node.get(part)
-    return node
+    for part in parents:
+        if not isinstance(node.get(part), dict):
+            if not create:
+                return None, last
+            node[part] = {}
+        node = node[part]
+    return node, last
 
 
 def raw_to_form(raw: dict) -> dict[str, str | bool]:
     values: dict[str, str | bool] = {}
     for field in FIELDS:
-        value = _get(raw, field.key)
+        node, last = _parent(raw, field.key)
+        value = None if node is None else node.get(last)
         values[field.key] = bool(value) if field.kind == "bool" else ("" if value is None else str(value))
     return values
 
@@ -65,11 +68,6 @@ def form_to_raw(values: dict[str, str | bool], base: dict) -> dict:
             value = int(str(value).strip())
         elif field.kind == "bool":
             value = bool(value)
-        *parents, last = field.key.split(".")
-        node = raw
-        for part in parents:
-            if not isinstance(node.get(part), dict):
-                node[part] = {}
-            node = node[part]
+        node, last = _parent(raw, field.key, create=True)
         node[last] = value
     return raw

@@ -46,15 +46,3 @@ def test_open_output_failure_shows_dialog(app, monkeypatch):
     app.open_output()
     assert app.errors and app.errors[-1][0] == "Open output folder"
 
-
-def test_worker_crash_reports_traceback(app, monkeypatch):
-    def boom(*args, **kwargs):
-        raise ValueError("kaboom")
-
-    monkeypatch.setattr(gui, "execute", boom)
-    app._work(None, ["/a"])
-    lines = []
-    while not app.messages.empty():
-        lines.append(app.messages.get())
-    text = "\n".join(str(x) for x in lines)
-    assert "Traceback" in text and "kaboom" in text
