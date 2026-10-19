@@ -1,4 +1,7 @@
-from splunk_seq.browser import wait_until
+from splunk_seq.browser import ca_cert_env, wait_until
+from splunk_seq.config import parse_config
+
+BASE = {"splunk": {"url": "https://s:8000"}, "session": {"query": "x"}, "sequence": {"query": "y"}}
 
 
 class FakeClock:
@@ -46,3 +49,15 @@ def test_wait_until_returns_false_when_stopped():
     fake = FakeClock()
     assert wait_until(lambda: False, 100, 2.0, fake.sleep, fake.clock, should_stop=lambda: True) is False
     assert fake.sleeps == []
+
+
+def test_ca_cert_env_empty_when_unset():
+    assert ca_cert_env(parse_config(BASE)) == {}
+
+
+def test_ca_cert_env_resolves_relative_path_with_spaces(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "certs").mkdir()
+    (tmp_path / "certs" / "My Corp CA.pem").write_text("pem", encoding="utf-8")
+    cfg = parse_config({**BASE, "browser": {"ca_cert_file": "certs/My Corp CA.pem"}})
+    assert ca_cert_env(cfg) == {"NODE_EXTRA_CA_CERTS": str(tmp_path / "certs" / "My Corp CA.pem")}

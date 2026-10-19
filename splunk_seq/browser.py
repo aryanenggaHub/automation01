@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Callable
 
 from .config import Config
+from .paths import app_dir, resolve_in_app
+
+PROFILE_DIR = "browser-profile"
+
+
+def ca_cert_env(cfg: Config) -> dict[str, str]:
+    """Environment that makes Playwright's HTTP client trust the company CA (read when the driver starts)."""
+    if not cfg.browser.ca_cert_file:
+        return {}
+    return {"NODE_EXTRA_CA_CERTS": str(resolve_in_app(cfg.browser.ca_cert_file))}
 
 
 def wait_until(
@@ -37,25 +48,38 @@ def wait_until(
 
 
 class BrowserSession:
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, should_stop: Callable[[], bool] = lambda: False):
         self.cfg = cfg
+        self.should_stop = should_stop
         self._playwright = None
-        self._browser = None
         self.context = None
         self.page = None
 
     def __enter__(self) -> "BrowserSession":
         from playwright.sync_api import sync_playwright
 
+        os.environ.update(ca_cert_env(self.cfg))
         self._playwright = sync_playwright().start()
-        self._browser = self._playwright.chromium.launch(channel=self.cfg.browser.channel, headless=False)
-        self.context = self._browser.new_context(ignore_https_errors=self.cfg.browser.ignore_https_errors)
-        self.page = self.context.new_page()
-        self.page.goto(self.cfg.splunk.url)
+        try:
+            # Persistent profile: the Splunk login (and any sign-in extension) survives between runs.
+            self.context = self._playwright.chromium.launch_persistent_context(
+                str(app_dir() / PROFILE_DIR),
+                channel=self.cfg.browser.channel,
+                headless=False,
+                ignore_https_errors=self.cfg.browser.ignore_https_errors,
+            )
+        except Exception:
+            self._playwright.stop()
+            raise
+        self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
+        try:
+            self.page.goto(self.cfg.splunk.url)
+        except Exception:
+            pass  # e.g. slow SSO redirect; login is detected by polling, not by this load
         return self
 
     def __exit__(self, *exc) -> bool:
-        self._browser.close()
+        self.context.close()
         self._playwright.stop()
         return False
 
@@ -74,7 +98,7 @@ class BrowserSession:
                 seen.add(message)
                 print(f"  Login check failed: {message}")
 
-        return wait_until(self._logged_in, self.cfg.splunk.login_timeout_seconds, on_error=report)
+        return wait_until(self._logged_in, self.cfg.splunk.login_timeout_seconds, on_error=report, should_stop=self.should_stop)
 
     def post(self, url: str, form: dict[str, str], headers: dict[str, str], timeout_s: float) -> tuple[int, str, str]:
         response = self.context.request.post(
