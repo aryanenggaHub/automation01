@@ -4,3 +4,6 @@ __pycache__/
 .superpowers/
 output/
 config.yaml
+build/
+dist/
+*.spec
