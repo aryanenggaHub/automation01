@@ -4,33 +4,36 @@ Give it one API endpoint, or a list of them, from any Layer (Gateway, Microservi
 
 Terms used here are defined in [GLOSSARY.md](GLOSSARY.md).
 
-## Setup
+## Download and run
 
-You need Python 3.10+ and Microsoft Edge (or Chrome). Playwright drives the browser that is already installed, so you do **not** run `playwright install`.
+No Python or installs needed. You only need Google Chrome (or Microsoft Edge).
 
-```
-py -m venv .venv
-.venv\Scripts\python -m pip install -r requirements.txt
-copy config.example.yaml config.yaml
-```
+1. Open this repository's **Releases** page on GitHub and download `SplunkSequence-vX.Y.Z-windows.zip`.
+2. Unzip it into a folder you can write to, such as Documents or Desktop (not Program Files). The app keeps its settings, browser profile and results in that folder.
+3. Double-click `SplunkSequence.exe`. If Windows SmartScreen warns about an unrecognised app, choose **More info → Run anyway** (the app isn't code-signed).
 
-Edit `config.yaml`: set `splunk.url` and write your two queries (see below). Each key is described in the file itself.
+If Chrome never opens or never reacts, open `chrome://policy` in Chrome and search for **RemoteDebugging**. If `RemoteDebuggingAllowed` is `false`, your company blocks browser automation in Chrome; switch **Browser** to **Edge** in the app.
 
-## Usage
+## Using the window
 
-```
-.venv\Scripts\python -m splunk_seq run --api /v1/customers/accounts
-.venv\Scripts\python -m splunk_seq run --file apis.txt
-.venv\Scripts\python -m splunk_seq run --file apis.txt --earliest=-4h --latest=-1h
-```
+- **Input APIs**: paste endpoints, one per line (`#` starts a comment), or use **Load file…** to fill the box from a `.txt` file.
+- **Settings**: Browser, Splunk URL, time range (any Splunk time, e.g. `-24h` / `now`), Sessions per API, the two queries (see below) and the output folder. **Advanced** holds field and column names, the ambiguity window, and the certificate options.
+- **Save** checks the settings and writes `config.yaml` next to the app. Problems are shown in a dialog, such as a missing Splunk URL.
+- **Run** saves first, then opens the browser at your Splunk URL. Log in there (SSO/MFA works); the run starts as soon as the login is detected. The app uses its own browser profile (`browser-profile` folder), so you stay logged in between runs. If your company needs a sign-in extension (for example Microsoft's *Windows Accounts*), install it once in that browser window.
+- **Stop** finishes the current Input API and stops. Everything done so far is already saved.
+- **Open output folder** shows the results: `api_sequence_<YYYYMMDD_HHMMSS>.xlsx` plus a matching `.log` file with everything the log pane showed. Send me the `.log` when something goes wrong.
 
-- `--file`: one endpoint per line. Blank lines and lines starting with `#` are ignored, and duplicates are skipped with a warning.
-- `--earliest` / `--latest`: override the config's time range for this run only (any Splunk time string). Use the `=` form (`--earliest=-4h`), because a value starting with `-` would otherwise be read as an option.
-- `--config`: use a config file other than `config.yaml`.
+The workbook is saved after every API. If you open it in Excel mid-run, saves fail with a warning and are retried; close it to let the run save again. If your login expires mid-run, the app asks you to log in again in the open browser and retries once.
 
-A browser window opens at your Splunk URL. Log in there (SSO/MFA works); the tool continues as soon as it detects the login. The workbook is written to `output/api_sequence_<YYYYMMDD_HHMMSS>.xlsx` and saved after every API, so a crash keeps finished work. If you open it in Excel mid-run, saves fail with a warning and are retried; close it to let the run save again.
+## Company certificate
 
-Exit codes: `0` run completed (some APIs may still be `NO_SESSION`/`ERROR`), `1` bad config, bad arguments or missing input file, `2` login not detected in time.
+If the log shows `Login check failed: ... certificate ...`, your company inspects HTTPS traffic with its own root certificate, which the app's HTTP client doesn't trust by default. To fix it:
+
+1. In Chrome, open your Splunk URL, click the padlock (or the "tune" icon) → **Connection is secure** → **Certificate is valid**.
+2. On the **Details** tab, select the top certificate in the chain (the root), click **Export…**, and save it as **Base-64 encoded (.pem / .crt)**.
+3. In the app, open **Advanced**, set **Company CA certificate (.pem)** to that file, and Save.
+
+Only if that is impossible, tick **Ignore HTTPS errors** instead.
 
 ## Writing the two queries
 
@@ -66,18 +69,34 @@ Every column the query outputs is copied to Excel in the same order.
 
 Searches run through Splunk Web's built-in proxy using your browser login, and come back as full JSON results (see [ADR 0001](docs/adr/0001-browser-login-with-splunkd-web-proxy.md)). If that proxy is blocked, every API shows `ERROR` with the HTTP status. A fallback that reads the Search page would then be built against your real Splunk (plan Task 8).
 
-If your login expires mid-run, the tool asks you to log in again in the open browser and retries once.
 
-## Manual verification checklist (inside your network)
+## Checklist for the first run on the company laptop
 
-- [ ] Login with SSO is detected and the run starts. If it is never detected and the console shows `Login check failed: ... certificate ...`, your Splunk uses an internal CA that the tool's HTTP client (Node, not Edge) doesn't trust. Either set the environment variable `NODE_EXTRA_CA_CERTS` to your CA's `.pem` file (preferred), or set `browser.ignore_https_errors: true`.
-- [ ] Proxy export returns rows (CSRF header accepted). If every API is `ERROR` with `HTTP 401`/`403`, this is the part to fix in `splunk_seq/fetch_proxy.py`.
-- [ ] A 2–3 API list yields a workbook with working Index hyperlinks.
-- [ ] Expiring the login mid-run triggers the re-login prompt and the run continues.
+- [ ] `SplunkSequence.exe` starts (SmartScreen "Run anyway" is fine).
+- [ ] Chrome opens with the app's own profile, and login is detected; on the second run you are still logged in.
+- [ ] If certificate errors appear, the Company CA certificate setting fixes them.
+- [ ] Searches return rows (CSRF header accepted). If every API is `ERROR` with `HTTP 401`/`403`, send the `.log` file.
+- [ ] A 2–3 API list yields a workbook with working Index hyperlinks, plus a `.log` next to it.
+- [ ] Stop mid-run ends after the current API.
 
-## Development
+## Running from source
+
+For development, or if you prefer the command line. Needs Python 3.10+.
 
 ```
+py -m venv .venv
 .venv\Scripts\python -m pip install -r requirements-dev.txt
+copy config.example.yaml config.yaml
 .venv\Scripts\python -m pytest -q
+.venv\Scripts\python -m splunk_seq run --api /v1/customers/accounts
+.venv\Scripts\python -m splunk_seq run --file apis.txt --earliest=-4h --latest=-1h
+.venv\Scripts\python app.py
 ```
+
+- `--file`: one endpoint per line; blank lines and `#` lines are ignored, duplicates skipped with a warning.
+- `--earliest` / `--latest`: override the time range for this run only. Use the `=` form (`--earliest=-4h`), because a value starting with `-` would otherwise be read as an option.
+- `--config`: use a config file other than `config.yaml`.
+- Exit codes: `0` run completed (some APIs may still be `NO_SESSION`/`ERROR`), `1` bad config, bad arguments, missing input file or browser failed to start, `2` login not detected in time.
+- `app.py` opens the window.
+
+To build the app yourself: `pip install pyinstaller`, then `powershell -File build.ps1`; the result is `dist\SplunkSequence\`. Pushing a tag like `v1.0.1` makes GitHub Actions build, self-test and publish the zip as a Release.

@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt pyinstaller
+
+      - name: Test
+        run: python -m pytest -q
+
+      - name: Build
+        shell: pwsh
+        run: ./build.ps1
+
+      - name: Self-test the packaged app
+        shell: pwsh
+        run: |
+          $d = "dist/SplunkSequence"
+          $p = Start-Process "$d/SplunkSequence.exe" -ArgumentList "--selftest" -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or -not (Test-Path "$d/selftest.ok")) { throw "self-test failed (exit $($p.ExitCode))" }
+          Remove-Item "$d/selftest.ok"
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path dist/SplunkSequence -DestinationPath "SplunkSequence-${{ github.ref_name }}-windows.zip"
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" "SplunkSequence-${{ github.ref_name }}-windows.zip" --title "${{ github.ref_name }}" --generate-notes
