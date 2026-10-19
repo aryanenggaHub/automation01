@@ -7,3 +7,5 @@ config.yaml
 build/
 dist/
 *.spec
+browser-profile/
+selftest.ok

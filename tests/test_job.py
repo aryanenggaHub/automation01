@@ -66,4 +66,35 @@ def test_execute_stop_during_login_writes_nothing(cfg, browser, monkeypatch, tmp
     result = execute(cfg, ["/a"], lines.append, should_stop=lambda: True, session_factory=browser, now=lambda: NOW)
     assert any("Stopped" in line for line in lines)
     assert result.workbook_path is None
-    assert not (tmp_path / "out").exists()
+    assert not list((tmp_path / "out").glob("*.xlsx"))
+
+
+def test_login_timeout_still_leaves_a_log_file(cfg, browser, monkeypatch):
+    monkeypatch.setattr(browser, "logged_in", False)
+    result = execute(cfg, ["/a"], lambda line: None, session_factory=browser, now=lambda: NOW)
+    assert "Login was not detected in time" in result.log_path.read_text(encoding="utf-8")
+
+
+def test_browser_start_failure_is_in_log_file(cfg, browser, monkeypatch):
+    monkeypatch.setattr(browser, "start_error", RuntimeError("profile in use"))
+    result = execute(cfg, ["/a"], lambda line: None, session_factory=browser, now=lambda: NOW)
+    assert "Could not start the browser: profile in use" in result.log_path.read_text(encoding="utf-8")
+
+
+def test_unexpected_error_logged_with_traceback(cfg, browser, monkeypatch):
+    def boom(*args, **kwargs):
+        raise ValueError("kaboom")
+
+    monkeypatch.setattr(job, "run", boom)
+    result = execute(cfg, ["/a"], lambda line: None, session_factory=browser, now=lambda: NOW)
+    text = result.log_path.read_text(encoding="utf-8")
+    assert result.exit_code == 1
+    assert "Traceback" in text and "kaboom" in text
+
+
+def test_unwritable_output_folder_exit_1(cfg, browser, monkeypatch, tmp_path):
+    (tmp_path / "out").write_text("a file where the folder should be", encoding="utf-8")
+    lines = []
+    result = execute(cfg, ["/a"], lines.append, session_factory=browser, now=lambda: NOW)
+    assert result.exit_code == 1
+    assert any("Cannot write to output folder" in line for line in lines)

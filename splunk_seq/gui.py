@@ -6,6 +6,7 @@ import os
 import queue
 import sys
 import threading
+import traceback
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -195,8 +196,8 @@ class App:
             return
         try:
             text = Path(chosen).read_text(encoding="utf-8-sig")
-        except OSError as exc:
-            messagebox.showerror("Load file", f"Cannot read {chosen}: {exc}")
+        except (OSError, UnicodeError) as exc:
+            messagebox.showerror("Load file", f"Cannot read {chosen} (save it as UTF-8 text): {exc}")
             return
         self.api_text.delete("1.0", "end")
         self.api_text.insert("1.0", text)
@@ -230,8 +231,8 @@ class App:
     def _work(self, cfg, apis: list[str]) -> None:
         try:
             result = execute(cfg, apis, self.messages.put, self.stop_event.is_set)
-        except Exception as exc:  # never let the worker die silently
-            self.messages.put(f"Unexpected error: {exc}")
+        except Exception:  # never let the worker die silently
+            self.messages.put("Unexpected error:\n" + traceback.format_exc())
             result = JobResult(1, None, None)
         self.messages.put(_Done(result))
 
@@ -241,8 +242,11 @@ class App:
 
     def open_output(self) -> None:
         folder = resolve_in_app(self._values()["output.dir"] or "output")
-        folder.mkdir(parents=True, exist_ok=True)
-        os.startfile(folder)
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            os.startfile(folder)
+        except OSError as exc:
+            messagebox.showerror("Open output folder", f"Cannot open {folder}: {exc}")
 
     def on_close(self) -> None:
         if self.worker is not None and self.worker.is_alive():

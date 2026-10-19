@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -105,6 +106,14 @@ def _positive_int(section: dict, prefix: str, key: str, default: int) -> int:
     return value
 
 
+def _time(section: dict, key: str, default: str) -> str:
+    """A Splunk time; blank would silently mean all time, so it is rejected."""
+    value = section.get(key, default)
+    if value is None or not str(value).strip():
+        raise ConfigError(f"Config key 'search.{key}' must not be empty (blank would search all time)")
+    return str(value).strip()
+
+
 def load_config(path: Path) -> Config:
     try:
         raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
@@ -155,8 +164,8 @@ def parse_config(raw: dict) -> Config:
             ca_cert_file=ca_cert_file,
         ),
         search=SearchCfg(
-            earliest=str(search.get("earliest", "-24h")),
-            latest=str(search.get("latest", "now")),
+            earliest=_time(search, "earliest", "-24h"),
+            latest=_time(search, "latest", "now"),
             timeout_seconds=_positive_int(search, "search", "timeout_seconds", 300),
         ),
         session=SessionCfg(
@@ -203,7 +212,13 @@ def load_raw_or_default(path: Path, example: Path) -> tuple[dict, str | None]:
                 return raw, None
         except (OSError, yaml.YAMLError):
             pass
-        warning = f"{Path(path).name} could not be read; showing default settings instead"
+        backup = Path(path).with_name(Path(path).name + ".bak")
+        try:
+            shutil.copyfile(path, backup)
+            kept = f"; your file was copied to {backup.name}"
+        except OSError:
+            kept = ""
+        warning = f"{Path(path).name} could not be read; showing default settings instead{kept}"
     raw = yaml.safe_load(Path(example).read_text(encoding="utf-8"))
     raw.setdefault("splunk", {})["url"] = ""
     return raw, warning

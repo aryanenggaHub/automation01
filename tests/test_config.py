@@ -131,3 +131,18 @@ def test_load_raw_or_default_broken_yaml(tmp_path):
     raw, warning = load_raw_or_default(p, Path("config.example.yaml"))
     assert raw["splunk"]["url"] == ""
     assert "config.yaml" in warning
+
+
+def test_broken_config_backed_up_before_defaults_shown(tmp_path):
+    p = write(tmp_path, "a: [")
+    raw, warning = load_raw_or_default(p, Path("config.example.yaml"))
+    assert (tmp_path / "config.yaml.bak").read_text(encoding="utf-8") == "a: ["
+    assert "config.yaml.bak" in warning
+
+
+@pytest.mark.parametrize("key", ["earliest", "latest"])
+def test_blank_time_range_rejected(key):
+    raw = yaml.safe_load(MIN)
+    raw["search"] = {key: "  "}
+    with pytest.raises(ConfigError, match=rf"search\.{key}"):
+        parse_config(raw)
