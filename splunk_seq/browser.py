@@ -15,13 +15,16 @@ def wait_until(
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
     on_error: Callable[[Exception], None] | None = None,
+    should_stop: Callable[[], bool] = lambda: False,
 ) -> bool:
-    """Poll check until it returns True (-> True) or timeout_s passes (-> False).
+    """Poll check until it returns True (-> True), or timeout_s passes or should_stop() (-> False).
 
     An exception from check counts as not ready and is passed to on_error.
     """
     deadline = clock() + timeout_s
     while True:
+        if should_stop():
+            return False
         try:
             if check():
                 return True

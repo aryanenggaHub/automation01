@@ -149,3 +149,13 @@ def test_uses_config_time_range(cfg):
     search = FakeSearch({"/a": [{"sessionId": "s1"}]}, {"s1": []})
     run(["/a"], cfg, search, FakeWorkbook(), log=lambda m: None)
     assert search.ranges == [("-2h", "-1h"), ("-2h", "-1h")]
+
+
+def test_should_stop_before_next_api(cfg):
+    calls = iter([False, True])
+    logs, wb = [], FakeWorkbook()
+    tally = run(["/a", "/b", "/c"], cfg, FakeSearch({"/a": [], "/b": [], "/c": []}, {}), wb,
+                log=logs.append, should_stop=lambda: next(calls))
+    assert [i for i, _ in wb.added] == [1]
+    assert "Stopped by user after 1 of 3 APIs" in logs
+    assert tally == {"OK": 0, "NO_SESSION": 1, "ERROR": 0}

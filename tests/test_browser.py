@@ -40,3 +40,9 @@ def test_wait_until_treats_check_exception_as_not_ready():
     errors = []
     assert wait_until(check, 10, 2.0, fake.sleep, fake.clock, on_error=errors.append) is True
     assert [str(e) for e in errors] == ["connection reset"]
+
+
+def test_wait_until_returns_false_when_stopped():
+    fake = FakeClock()
+    assert wait_until(lambda: False, 100, 2.0, fake.sleep, fake.clock, should_stop=lambda: True) is False
+    assert fake.sleeps == []

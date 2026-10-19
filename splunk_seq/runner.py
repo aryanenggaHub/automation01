@@ -37,10 +37,20 @@ def _process(api: str, cfg: Config, search: SearchFn, log: Callable[[str], None]
     return result
 
 
-def run(apis: list[str], cfg: Config, search: SearchFn, workbook, log: Callable[[str], None] = print) -> dict[str, int]:
+def run(
+    apis: list[str],
+    cfg: Config,
+    search: SearchFn,
+    workbook,
+    log: Callable[[str], None] = print,
+    should_stop: Callable[[], bool] = lambda: False,
+) -> dict[str, int]:
     tally = {OK: 0, NO_SESSION: 0, ERROR: 0}
     saved = True
     for i, api in enumerate(apis, start=1):
+        if should_stop():
+            log(f"Stopped by user after {i - 1} of {len(apis)} APIs")
+            break
         log(f"[{i}/{len(apis)}] {api}")
         result = _process(api, cfg, search, log)
         workbook.add(i, result)
