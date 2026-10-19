@@ -9,3 +9,10 @@ dist/
 *.spec
 browser-profile/
 selftest.ok
+config.yaml.bak
+*.log
+*.xlsx
+*.pem
+*.crt
+*.cer
+.env

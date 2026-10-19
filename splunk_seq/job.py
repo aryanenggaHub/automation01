@@ -61,8 +61,11 @@ def execute(
                 return JobResult(2, None, log_path)
             search = with_relogin(ProxyFetcher(cfg, session.post, session.cookies).run_search, session.wait_for_login, tee)
             tally = run(apis, cfg, search, SequenceWorkbook(path, len(apis)), log=tee, should_stop=should_stop)
-            tee(f"Wrote {path}")
             tee(" ".join(f"{status}={count}" for status, count in tally.items()))
+            if not path.exists():
+                tee("No workbook written (stopped before the first Input API finished)")
+                return JobResult(0, None, log_path, tally)
+            tee(f"Wrote {path}")
             return JobResult(0, path, log_path, tally)
         except Exception:
             tee("Unexpected error:\n" + traceback.format_exc())

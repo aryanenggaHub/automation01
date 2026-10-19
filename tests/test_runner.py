@@ -159,3 +159,19 @@ def test_should_stop_before_next_api(cfg):
     assert [i for i, _ in wb.added] == [1]
     assert "Stopped by user after 1 of 3 APIs" in logs
     assert tally == {"OK": 0, "NO_SESSION": 1, "ERROR": 0}
+
+
+@pytest.mark.parametrize("bad", ["x | delete", "a b", "[| rest /services]", 'q"', "line\nbreak", "back\slash"])
+def test_unsafe_session_ids_skipped(cfg, bad):
+    logs, wb = [], FakeWorkbook()
+    search = FakeSearch({"/a": [{"sessionId": bad}, {"sessionId": "s1"}]}, {"s1": []})
+    run(["/a"], cfg, search, wb, log=logs.append)
+    assert [s.session_id for s in wb.added[0][1].sessions] == ["s1"]
+    assert any("Skipped unsafe Session ID" in m for m in logs)
+
+
+def test_only_unsafe_session_ids_is_error(cfg):
+    wb = FakeWorkbook()
+    run(["/a"], cfg, FakeSearch({"/a": [{"sessionId": "x | delete"}]}, {}), wb, log=lambda m: None)
+    result = wb.added[0][1]
+    assert result.status == ERROR and "unsafe" in result.error

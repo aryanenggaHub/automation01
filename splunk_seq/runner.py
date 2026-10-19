@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Callable
 
 from .config import Config
@@ -11,11 +12,24 @@ from .models import ERROR, NO_SESSION, OK, ApiResult, SearchFn, SessionResult
 from .queries import MISSING_SESSION_ID, render_sequence_query, render_session_query
 
 
-def _session_ids(rows, field: str, limit: int) -> list[str]:
+# Session IDs come from log data, so treat them as untrusted: whitespace, pipes, brackets,
+# quotes or backslashes could inject SPL into a Sequence Query that doesn't quote {session_id}.
+UNSAFE_SESSION_ID = re.compile(r'[\s|\[\]"\\]')
+
+
+def _session_ids(rows, field: str, limit: int, log: Callable[[str], None]) -> list[str]:
     ids = [r[field] for r in rows if r.get(field) and r[field] != MISSING_SESSION_ID]
     if rows and not ids:
         raise SearchError(f"Session Query results have no '{field}' field")
-    return list(dict.fromkeys(ids))[:limit]
+    safe = []
+    for sid in dict.fromkeys(ids):
+        if UNSAFE_SESSION_ID.search(sid):
+            log(f"  Skipped unsafe Session ID {sid!r}")
+        else:
+            safe.append(sid)
+    if ids and not safe:
+        raise SearchError('Every Session ID found contains unsafe characters (spaces, | [ ] " or \\)')
+    return safe[:limit]
 
 
 def _process(api: str, cfg: Config, search: SearchFn, log: Callable[[str], None]) -> ApiResult:
@@ -23,7 +37,7 @@ def _process(api: str, cfg: Config, search: SearchFn, log: Callable[[str], None]
     earliest, latest = cfg.search.earliest, cfg.search.latest
     try:
         rows = search(render_session_query(cfg.session, api), earliest, latest)
-        ids = _session_ids(rows, cfg.session.session_id_field, cfg.session.sessions_per_api)
+        ids = _session_ids(rows, cfg.session.session_id_field, cfg.session.sessions_per_api, log)
         if not ids:
             result.status = NO_SESSION
             return result

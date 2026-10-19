@@ -98,3 +98,16 @@ def test_unwritable_output_folder_exit_1(cfg, browser, monkeypatch, tmp_path):
     result = execute(cfg, ["/a"], lines.append, session_factory=browser, now=lambda: NOW)
     assert result.exit_code == 1
     assert any("Cannot write to output folder" in line for line in lines)
+
+
+def test_stop_before_first_api_reports_no_workbook(cfg, browser, monkeypatch):
+    def stopped_run(apis, cfg, search, workbook, log=print, should_stop=lambda: False):
+        log("Stopped by user after 0 of 1 APIs")
+        return {"OK": 0, "NO_SESSION": 0, "ERROR": 0}
+
+    monkeypatch.setattr(job, "run", stopped_run)
+    lines = []
+    result = execute(cfg, ["/a"], lines.append, session_factory=browser, now=lambda: NOW)
+    assert result.workbook_path is None
+    assert not any(line.startswith("Wrote ") for line in lines)
+    assert any("No workbook written" in line for line in lines)
