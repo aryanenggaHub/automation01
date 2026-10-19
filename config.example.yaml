@@ -6,8 +6,9 @@ splunk:
   login_timeout_seconds: 300                  # how long to wait for you to log in
 
 browser:
-  channel: msedge            # installed browser to use: msedge | chrome
+  channel: chrome            # installed browser to use: chrome | msedge
   ignore_https_errors: false # set true only if login is never detected because of certificate errors (internal CA)
+  ca_cert_file: ""           # company root CA (.pem) if Splunk HTTPS fails with certificate errors
 
 search:
   earliest: -24h             # default time range start (override with --earliest)

@@ -8,6 +8,10 @@ from pathlib import Path
 
 import yaml
 
+from .paths import resolve_in_app
+
+CHANNELS = ("chrome", "msedge")
+
 DEFAULT_LAYER_COLUMNS = {
     "Gateway": "Gateway API Endpoint",
     "Microservice": "Microservice Endpoint",
@@ -31,6 +35,7 @@ class SplunkCfg:
 class BrowserCfg:
     channel: str
     ignore_https_errors: bool
+    ca_cert_file: str
 
 
 @dataclass(frozen=True)
@@ -107,6 +112,10 @@ def load_config(path: Path) -> Config:
         raise ConfigError(f"Config file not found: {path}") from None
     except yaml.YAMLError as exc:
         raise ConfigError(f"Config file is not valid YAML: {exc}") from None
+    return parse_config(raw)
+
+
+def parse_config(raw: dict) -> Config:
     if not isinstance(raw, dict):
         raise ConfigError("Config file must be a YAML mapping")
 
@@ -119,6 +128,12 @@ def load_config(path: Path) -> Config:
 
     if not isinstance(browser.get("ignore_https_errors", False), bool):
         raise ConfigError("Config key 'browser.ignore_https_errors' must be true or false")
+    channel = browser.get("channel", "chrome")
+    if channel not in CHANNELS:
+        raise ConfigError(f"Config key 'browser.channel' must be one of {', '.join(CHANNELS)}")
+    ca_cert_file = browser.get("ca_cert_file") or ""
+    if not isinstance(ca_cert_file, str) or (ca_cert_file and not resolve_in_app(ca_cert_file).is_file()):
+        raise ConfigError(f"Config key 'browser.ca_cert_file': file not found: {ca_cert_file}")
 
     layer_columns = sequence.get("layer_columns", DEFAULT_LAYER_COLUMNS)
     if (
@@ -135,8 +150,9 @@ def load_config(path: Path) -> Config:
             login_timeout_seconds=_positive_int(splunk, "splunk", "login_timeout_seconds", 300),
         ),
         browser=BrowserCfg(
-            channel=_str(browser, "browser", "channel", "msedge"),
+            channel=channel,
             ignore_https_errors=browser.get("ignore_https_errors", False),
+            ca_cert_file=ca_cert_file,
         ),
         search=SearchCfg(
             earliest=str(search.get("earliest", "-24h")),
@@ -165,3 +181,29 @@ def load_config(path: Path) -> Config:
 def with_overrides(cfg: Config, earliest: str | None, latest: str | None) -> Config:
     search = dataclasses.replace(cfg.search, earliest=earliest or cfg.search.earliest, latest=latest or cfg.search.latest)
     return dataclasses.replace(cfg, search=search)
+
+
+def save_config(path: Path, raw: dict) -> Config:
+    """Validate raw settings, then write them as YAML. Invalid settings leave the file untouched."""
+    cfg = parse_config(raw)
+    try:
+        Path(path).write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError(f"Cannot save config to {path}: {exc.strerror or exc}") from None
+    return cfg
+
+
+def load_raw_or_default(path: Path, example: Path) -> tuple[dict, str | None]:
+    """Settings for the form: path's raw mapping (unvalidated), else the example with a blank URL."""
+    warning = None
+    if Path(path).exists():
+        try:
+            raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                return raw, None
+        except (OSError, yaml.YAMLError):
+            pass
+        warning = f"{Path(path).name} could not be read; showing default settings instead"
+    raw = yaml.safe_load(Path(example).read_text(encoding="utf-8"))
+    raw.setdefault("splunk", {})["url"] = ""
+    return raw, warning

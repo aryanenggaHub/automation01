@@ -1,8 +1,9 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
-from splunk_seq.config import ConfigError, load_config, with_overrides
+from splunk_seq.config import ConfigError, load_config, load_raw_or_default, parse_config, save_config, with_overrides
 
 MIN = """
 splunk: {url: "https://splunk.local:8000/"}
@@ -21,7 +22,8 @@ def test_minimal_config_gets_spec_defaults(tmp_path):
     cfg = load_config(write(tmp_path, MIN))
     assert cfg.splunk.url == "https://splunk.local:8000"
     assert cfg.splunk.locale == "en-US" and cfg.splunk.login_timeout_seconds == 300
-    assert cfg.browser.channel == "msedge" and cfg.browser.ignore_https_errors is False
+    assert cfg.browser.channel == "chrome" and cfg.browser.ignore_https_errors is False
+    assert cfg.browser.ca_cert_file == ""
     assert (cfg.search.earliest, cfg.search.latest, cfg.search.timeout_seconds) == ("-24h", "now", 300)
     assert cfg.session.session_id_field == "sessionId" and cfg.session.sessions_per_api == 10
     assert cfg.sequence.timestamp_field == "Timestamp"
@@ -68,3 +70,64 @@ def test_overrides_replace_only_given_values(tmp_path):
 
 def test_example_config_is_valid():
     load_config(Path("config.example.yaml"))
+
+
+def test_parse_config_accepts_dict():
+    assert parse_config(yaml.safe_load(MIN)).splunk.url == "https://splunk.local:8000"
+
+
+def test_invalid_channel_rejected():
+    raw = yaml.safe_load(MIN)
+    raw["browser"] = {"channel": "firefox"}
+    with pytest.raises(ConfigError, match=r"browser\.channel"):
+        parse_config(raw)
+
+
+def test_missing_ca_cert_file_rejected():
+    raw = yaml.safe_load(MIN)
+    raw["browser"] = {"ca_cert_file": "nope.pem"}
+    with pytest.raises(ConfigError, match=r"browser\.ca_cert_file"):
+        parse_config(raw)
+
+
+def test_save_config_round_trip(tmp_path):
+    raw = yaml.safe_load(MIN)
+    p = tmp_path / "config.yaml"
+    save_config(p, raw)
+    assert load_config(p) == parse_config(raw)
+
+
+def test_save_config_invalid_leaves_file_untouched(tmp_path):
+    p = write(tmp_path, MIN)
+    before = p.read_bytes()
+    with pytest.raises(ConfigError):
+        save_config(p, {"splunk": {"url": ""}})
+    assert p.read_bytes() == before
+
+
+def test_save_config_unwritable_raises_config_error(tmp_path, monkeypatch):
+    def deny(*args, **kwargs):
+        raise PermissionError("Access is denied")
+
+    monkeypatch.setattr(Path, "write_text", deny)
+    with pytest.raises(ConfigError, match="Cannot save config"):
+        save_config(tmp_path / "config.yaml", yaml.safe_load(MIN))
+
+
+def test_load_raw_or_default_missing_file(tmp_path):
+    raw, warning = load_raw_or_default(tmp_path / "config.yaml", Path("config.example.yaml"))
+    assert raw["splunk"]["url"] == "" and raw["session"]["sessions_per_api"] == 10
+    assert warning is None
+
+
+def test_load_raw_or_default_invalid_values_kept(tmp_path):
+    p = write(tmp_path, MIN.replace("session: {query:", "session: {sessions_per_api: ten, query:"))
+    raw, warning = load_raw_or_default(p, Path("config.example.yaml"))
+    assert raw["session"]["sessions_per_api"] == "ten" and warning is None
+
+
+def test_load_raw_or_default_broken_yaml(tmp_path):
+    p = write(tmp_path, "a: [")
+    raw, warning = load_raw_or_default(p, Path("config.example.yaml"))
+    assert raw["splunk"]["url"] == ""
+    assert "config.yaml" in warning
