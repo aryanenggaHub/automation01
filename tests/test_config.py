@@ -23,8 +23,8 @@ def test_minimal_config_gets_spec_defaults(tmp_path):
     assert cfg.splunk.url == "https://splunk.local:8000"
     assert cfg.splunk.locale == "en-US" and cfg.splunk.login_timeout_seconds == 300
     assert cfg.browser.channel == "chrome" and cfg.browser.ignore_https_errors is False
-    assert cfg.browser.ca_cert_file == ""
     assert (cfg.search.earliest, cfg.search.latest, cfg.search.timeout_seconds) == ("-24h", "now", 300)
+    assert cfg.search.max_rows == 5000 and cfg.warnings == ()
     assert cfg.session.session_id_field == "sessionId" and cfg.session.sessions_per_api == 10
     assert cfg.sequence.timestamp_field == "Timestamp"
     assert cfg.sequence.timestamp_format == "%H:%M:%S.%f"
@@ -83,11 +83,13 @@ def test_invalid_channel_rejected():
         parse_config(raw)
 
 
-def test_missing_ca_cert_file_rejected():
+def test_retired_ca_cert_file_warns_and_save_drops_it(tmp_path):
     raw = yaml.safe_load(MIN)
     raw["browser"] = {"ca_cert_file": "nope.pem"}
-    with pytest.raises(ConfigError, match=r"browser\.ca_cert_file"):
-        parse_config(raw)
+    assert "ca_cert_file is no longer used" in parse_config(raw).warnings[0]
+    p = tmp_path / "config.yaml"
+    save_config(p, raw)
+    assert load_config(p).warnings == ()
 
 
 def test_save_config_round_trip(tmp_path):

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 class Field:
     key: str  # dotted path into the raw config dict
     label: str
-    kind: str  # text | multiline | int | bool | choice | file | dir
+    kind: str  # text | multiline | int | bool | choice | dir
     advanced: bool = False
 
 
@@ -29,11 +29,11 @@ FIELDS = [
     Field("sequence.timestamp_field", "Timestamp field", "text", True),
     Field("sequence.timestamp_format", "Timestamp format", "text", True),
     Field("sequence.ambiguity_window_ms", "Ambiguity window (ms)", "int", True),
+    Field("search.max_rows", "Max rows per query", "int", True),
     Field(_LAYERS + "Gateway", "Gateway column", "text", True),
     Field(_LAYERS + "Microservice", "Microservice column", "text", True),
     Field(_LAYERS + "Downstream API", "Downstream API column", "text", True),
     Field(_LAYERS + "Downstream MQ", "Downstream MQ column", "text", True),
-    Field("browser.ca_cert_file", "Company CA certificate (.pem)", "file", True),
     Field("browser.ignore_https_errors", "Ignore HTTPS errors", "bool", True),
 ]
 

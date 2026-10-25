@@ -7,7 +7,7 @@ from typing import Callable
 from .errors import LoginExpired, SearchError
 from .models import Row, SearchFn
 
-RELOGIN_MESSAGE = "Splunk login expired — log in again in the browser window"
+RELOGIN_MESSAGE = "Splunk login expired — log in again in the browser window, then confirm (Continue button or Enter)"
 
 
 def with_relogin(search: SearchFn, relogin: Callable[[], bool], log: Callable[[str], None]) -> SearchFn:
@@ -17,7 +17,7 @@ def with_relogin(search: SearchFn, relogin: Callable[[], bool], log: Callable[[s
         except LoginExpired:
             log(RELOGIN_MESSAGE)
             if not relogin():
-                raise SearchError("Login expired and re-login timed out") from None
+                raise SearchError("Login expired and the new login was not confirmed in time") from None
         try:
             return search(query, earliest, latest)
         except LoginExpired as exc:

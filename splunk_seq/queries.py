@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from .config import SequenceCfg, SessionCfg
 
 # Splunk's dedup drops events without the field; fill them first so a wrong
@@ -31,3 +33,12 @@ def render_session_query(cfg: SessionCfg, input_api: str) -> str:
 
 def render_sequence_query(cfg: SequenceCfg, session_id: str) -> str:
     return _finalize(cfg.query.replace("{session_id}", escape_spl(session_id)))
+
+
+# The last command is `table ...`: no pipe after the final "| table".
+_ENDS_IN_TABLE = re.compile(r"\|\s*table\b[^|]*$")
+
+
+def ensure_table(query: str) -> str:
+    """End the query in a table command, so Splunk's Search page shows it as a Statistics table."""
+    return query if _ENDS_IN_TABLE.search(query) else query + " | table *"

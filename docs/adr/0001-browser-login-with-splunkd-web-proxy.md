@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: superseded by ADR 0003
 ---
 
 # Browser login, data via the splunkd web proxy

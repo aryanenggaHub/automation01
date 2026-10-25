@@ -1,0 +1,38 @@
+# How the app drives Splunk's Search page. Drafted for Splunk Enterprise 9.x Search & Reporting.
+# If a run fails on a step or selector, click "Test UI steps" in the app: it runs one search,
+# reports which selectors matched, and saves a screenshot next to the log. Fix the selector here
+# (Chrome: right-click the element > Inspect; or `playwright codegen <your Splunk URL>`).
+#
+# Selectors are Playwright selectors: CSS ("table.results"), text ("text=No results found"),
+# or several separated by commas. Placeholders in steps:
+#   {url} {locale}     from config.yaml (splunk.url, splunk.locale)
+#   {query}            the full SPL to run (URL-encoded inside goto, as typed elsewhere)
+#   {earliest} {latest} the time range
+# The app appends "| table *" to queries that don't already end in a table command, so results
+# always show as a Statistics table.
+
+# Visible only on the login page (Splunk's own form; add your SSO page's field if it differs).
+# Seen mid-run, it means the login expired: the app asks you to log in again and retries once.
+login_page: "form.loginForm, input#username"
+
+# Steps that run one search. Actions: goto, click, fill, press, wait_for.
+#   - click: "<selector>"
+#   - fill: {selector: "<selector>", value: "{query}"}
+#   - press: {selector: "<selector>", key: "Enter"}
+#   - wait_for: "<selector>"   (waits up to search.timeout_seconds)
+search:
+  - goto: "{url}/{locale}/app/search/search?q={query}&earliest={earliest}&latest={latest}&display.page.search.tab=statistics&display.prefs.statistics.count=100"
+
+# Where the results appear. After the steps, the app waits (up to search.timeout_seconds) for
+# login_page, error, no_results or done to show, then reads the table page by page.
+results:
+  # Search job finished. Must NOT match while the job runs: the table shows preview rows then.
+  done: ".jobstatus .icon-check"
+  error: ".alert-error"                                               # Splunk's error message
+  no_results: "text=No results found"
+  table: ".search-results-statistics table"
+  header: "thead th"        # header cells; their text is the field name
+  row: "tbody tr"
+  cell: "td"
+  next: ".search-results-statistics .pagination li.next a"   # blank = read the first page only
+  next_disabled: ".search-results-statistics .pagination li.next.disabled"

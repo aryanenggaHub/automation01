@@ -46,3 +46,22 @@ def test_open_output_failure_shows_dialog(app, monkeypatch):
     app.open_output()
     assert app.errors and app.errors[-1][0] == "Open output folder"
 
+
+
+def test_continue_button_confirms_login(app):
+    import threading
+
+    result = []
+    worker = threading.Thread(target=lambda: result.append(app._confirm_login(10)))
+    worker.start()
+    prompt = app.messages.get(timeout=5)
+    assert isinstance(prompt, gui.LoginPrompt) and prompt.active
+    app.login_event.set()  # what the Continue button does
+    worker.join(timeout=5)
+    assert result == [True]
+    assert app.messages.get(timeout=5).active is False
+
+
+def test_stop_ends_login_wait(app):
+    app.stop_event.set()
+    assert app._confirm_login(10) is False

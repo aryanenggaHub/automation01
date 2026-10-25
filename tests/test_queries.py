@@ -1,5 +1,5 @@
 from splunk_seq.config import DEFAULT_LAYER_COLUMNS, SequenceCfg, SessionCfg
-from splunk_seq.queries import escape_spl, render_sequence_query, render_session_query
+from splunk_seq.queries import ensure_table, escape_spl, render_sequence_query, render_session_query
 
 
 def session_cfg(query):
@@ -41,3 +41,10 @@ def test_other_braces_untouched():
 
 def test_input_value_is_escaped():
     assert render_session_query(session_cfg('"{input_api}"'), 'a"b').startswith('search "a\\"b"')
+
+
+def test_ensure_table_appends_unless_query_ends_in_table():
+    assert ensure_table("search x | head 5") == "search x | head 5 | table *"
+    assert ensure_table('search x | table _time "a b"') == 'search x | table _time "a b"'
+    assert ensure_table("search x | table a | head 3") == "search x | table a | head 3 | table *"
+    assert ensure_table("search tablet=1") == "search tablet=1 | table *"

@@ -18,6 +18,15 @@ def load_input_apis(text: str) -> tuple[list[str], int]:
     return apis, len(kept) - len(apis)
 
 
+def confirm_in_console(timeout_s: float) -> bool:
+    """Wait for Enter (the timeout doesn't apply: Ctrl+C cancels)."""
+    try:
+        input("Press Enter here once you are logged in to Splunk... ")
+    except EOFError:
+        return False
+    return True
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="splunk_seq", description="Rebuild API Sequences from Splunk into Excel.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -62,4 +71,4 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = with_overrides(cfg, args.earliest, args.latest)
 
-    return execute(cfg, apis, print).exit_code
+    return execute(cfg, apis, print, confirm_in_console).exit_code

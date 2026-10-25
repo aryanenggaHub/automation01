@@ -11,6 +11,7 @@ from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
 from . import __version__
+from .browser import wait_until
 from .cli import load_input_apis
 from .config import CHANNELS, ConfigError, load_raw_or_default, save_config
 from .form import FIELDS, form_to_raw, raw_to_form
@@ -19,6 +20,13 @@ from .paths import app_dir, resolve_in_app
 
 CONFIG_NAME = "config.yaml"
 EXAMPLE_NAME = "config.example.yaml"
+
+
+class LoginPrompt:
+    """Queued by the worker: show (active=True) or hide the Continue button."""
+
+    def __init__(self, active: bool):
+        self.active = active
 
 
 def example_path() -> Path:
@@ -35,6 +43,7 @@ class App:
         self.texts: dict[str, tk.Text] = {}
         self.editable: list[tk.Widget] = []
         self.stop_event = threading.Event()
+        self.login_event = threading.Event()
         self.messages: queue.Queue = queue.Queue()
         self.worker: threading.Thread | None = None
         self.closing = False
@@ -91,9 +100,11 @@ class App:
         buttons.grid(row=1, column=0, columnspan=2, sticky="ew")
         self.save_button = ttk.Button(buttons, text="Save", command=self.save)
         self.run_button = ttk.Button(buttons, text="Run", command=self.run)
+        self.continue_button = ttk.Button(buttons, text="Continue (I'm logged in)", command=self.login_event.set, state="disabled")
         self.stop_button = ttk.Button(buttons, text="Stop", command=self.stop, state="disabled")
+        self.test_button = ttk.Button(buttons, text="Test UI steps", command=lambda: self.run(probe=True))
         open_button = ttk.Button(buttons, text="Open output folder", command=self.open_output)
-        for b in (self.save_button, self.run_button, self.stop_button, open_button):
+        for b in (self.save_button, self.run_button, self.continue_button, self.stop_button, self.test_button, open_button):
             b.pack(side="left", padx=(0, 6))
         self.editable.append(self.save_button)
 
@@ -116,7 +127,7 @@ class App:
         else:
             var = tk.StringVar()
             self.vars[field.key] = var
-            if field.kind in ("file", "dir"):
+            if field.kind == "dir":
                 widget = ttk.Frame(parent)
                 entry = ttk.Entry(widget, textvariable=var)
                 entry.pack(side="left", fill="x", expand=True)
@@ -166,10 +177,7 @@ class App:
             self.adv_button.configure(text="Advanced ▾")
 
     def browse(self, field) -> None:
-        if field.kind == "dir":
-            chosen = filedialog.askdirectory(initialdir=app_dir())
-        else:
-            chosen = filedialog.askopenfilename(initialdir=app_dir(), filetypes=[("PEM certificate", "*.pem *.crt"), ("All files", "*.*")])
+        chosen = filedialog.askdirectory(initialdir=app_dir())
         if chosen:
             self.vars[field.key].set(chosen)
 
@@ -196,7 +204,8 @@ class App:
         self.log(f"Settings saved to {self.config_path}")
         return cfg
 
-    def run(self) -> None:
+    def run(self, probe: bool = False) -> None:
+        """Run every Input API, or with probe=True test ui_steps.yaml on the first one."""
         cfg = self.save()
         if cfg is None:
             return
@@ -208,12 +217,21 @@ class App:
             self.log(f"Warning: {skipped} duplicate Input API line(s) skipped")
         self._set_running(True)
         self.stop_event.clear()
-        self.worker = threading.Thread(target=self._work, args=(cfg, apis), daemon=True)
+        self.worker = threading.Thread(target=self._work, args=(cfg, apis, probe), daemon=True)
         self.worker.start()
 
-    def _work(self, cfg, apis: list[str]) -> None:
+    def _work(self, cfg, apis: list[str], probe: bool) -> None:
         # execute() catches its own failures and always returns a JobResult.
-        self.messages.put(execute(cfg, apis, self.messages.put, self.stop_event.is_set))
+        self.messages.put(execute(cfg, apis, self.messages.put, self._confirm_login, self.stop_event.is_set, probe=probe))
+
+    def _confirm_login(self, timeout_s: float) -> bool:
+        """Worker thread: wait for the Continue button (-> True), or Stop / timeout (-> False)."""
+        self.login_event.clear()
+        self.messages.put(LoginPrompt(True))
+        try:
+            return wait_until(self.login_event.is_set, timeout_s, 0.2, should_stop=self.stop_event.is_set)
+        finally:
+            self.messages.put(LoginPrompt(False))
 
     def stop(self) -> None:
         self.stop_event.set()
@@ -243,6 +261,10 @@ class App:
                 item = self.messages.get_nowait()
                 if isinstance(item, JobResult):
                     self._finish(item)
+                elif isinstance(item, LoginPrompt):
+                    self.continue_button.configure(state="normal" if item.active else "disabled")
+                    if item.active:
+                        self.log("When you are logged in to Splunk, click 'Continue (I'm logged in)'.")
                 else:
                     self.log(str(item))
         except queue.Empty:
@@ -263,6 +285,9 @@ class App:
             else:
                 widget.state(["disabled"] if running else ["!disabled"])
         self.run_button.state(["disabled"] if running else ["!disabled"])
+        self.test_button.state(["disabled"] if running else ["!disabled"])
+        if not running:
+            self.continue_button.configure(state="disabled")
         self.stop_button.configure(text="Stop", state="normal" if running else "disabled")
 
 

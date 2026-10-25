@@ -23,7 +23,7 @@ def config_file(tmp_path):
 def captured(monkeypatch):
     seen = {}
 
-    def fake_execute(cfg, apis, log, should_stop=lambda: False):
+    def fake_execute(cfg, apis, log, confirm_login, should_stop=lambda: False):
         seen["apis"] = apis
         seen["cfg"] = cfg
         return JobResult(seen.get("exit_code", 0), None, None, {"OK": len(apis), "NO_SESSION": 0, "ERROR": 0})

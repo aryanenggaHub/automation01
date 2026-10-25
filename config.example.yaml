@@ -7,13 +7,13 @@ splunk:
 
 browser:
   channel: chrome            # installed browser to use: chrome | msedge
-  ignore_https_errors: false # set true only if login is never detected because of certificate errors (internal CA)
-  ca_cert_file: ""           # company root CA (.pem) if Splunk HTTPS fails with certificate errors
+  ignore_https_errors: false # set true only if Chrome itself shows a certificate error page for Splunk
 
 search:
   earliest: -24h             # default time range start (override with --earliest)
   latest: now                # default time range end (override with --latest)
   timeout_seconds: 300       # per query
+  max_rows: 5000             # stop reading a query's results table after this many rows
 
 session:
   # Session Query. {input_api} is replaced with the Input API.

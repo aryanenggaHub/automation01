@@ -4,4 +4,4 @@ pyinstaller --noconfirm --clean --windowed --name SplunkSequence `
     --collect-all playwright `
     app.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-Copy-Item config.example.yaml, README.md dist\SplunkSequence\
+Copy-Item config.example.yaml, ui_steps.yaml, README.md dist\SplunkSequence\

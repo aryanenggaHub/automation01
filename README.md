@@ -17,23 +17,26 @@ If Chrome never opens or never reacts, open `chrome://policy` in Chrome and sear
 ## Using the window
 
 - **Input APIs**: paste endpoints, one per line (`#` starts a comment), or use **Load file…** to fill the box from a `.txt` file.
-- **Settings**: Browser, Splunk URL, time range (any Splunk time, e.g. `-24h` / `now`), Sessions per API, the two queries (see below) and the output folder. **Advanced** holds field and column names, the ambiguity window, and the certificate options.
+- **Settings**: Browser, Splunk URL, time range (any Splunk time, e.g. `-24h` / `now`), Sessions per API, the two queries (see below) and the output folder. **Advanced** holds field and column names, the ambiguity window, the row limit per query and *Ignore HTTPS errors*.
 - **Save** checks the settings and writes `config.yaml` next to the app. Problems are shown in a dialog, such as a missing Splunk URL.
-- **Run** saves first, then opens the browser at your Splunk URL. Log in there (SSO/MFA works); the run starts as soon as the login is detected. The app uses its own browser profile (`browser-profile` folder), so you stay logged in between runs. If your company needs a sign-in extension (for example Microsoft's *Windows Accounts*), install it once in that browser window.
+- **Run** saves first, then opens the browser at your Splunk URL. Log in there (SSO/MFA works), then click **Continue (I'm logged in)**; the run starts then. The app uses its own browser profile (`browser-profile` folder), so you stay logged in between runs. If your company needs a sign-in extension (for example Microsoft's *Windows Accounts*), install it once in that browser window.
 - **Stop** finishes the current Input API and stops. Everything done so far is already saved.
+- **Test UI steps** runs only the first Input API's Session Query and reports which `ui_steps.yaml` selectors matched, plus a screenshot (`..._probe.png`) of the page. Use it on the first run, and whenever a run fails on a UI step.
 - **Open output folder** shows the results: `api_sequence_<YYYYMMDD_HHMMSS>.xlsx` plus a matching `.log` file with everything the log pane showed. Send me the `.log` when something goes wrong.
 
-The workbook is saved after every API. If you open it in Excel mid-run, saves fail with a warning and are retried; close it to let the run save again. If your login expires mid-run, the app asks you to log in again in the open browser and retries once.
+The workbook is saved after every API. If you open it in Excel mid-run, saves fail with a warning and are retried; close it to let the run save again. If your login expires mid-run (the login page shows), the app asks you to log in again in the open browser, waits for **Continue**, and retries once.
 
-## Company certificate
+## How searches run (ui_steps.yaml)
 
-If the log shows `Login check failed: ... certificate ...`, your company inspects HTTPS traffic with its own root certificate, which the app's HTTP client doesn't trust by default. To fix it:
+Every search runs in the browser's own Splunk Search page, so Chrome's certificates, proxy and login apply; no company certificate setup is needed. `ui_steps.yaml`, next to the app, says which screens and elements to use:
 
-1. In Chrome, open your Splunk URL, click the padlock (or the "tune" icon) → **Connection is secure** → **Certificate is valid**.
-2. On the **Details** tab, select the top certificate in the chain (the root), click **Export…**, and save it as **Base-64 encoded (.pem / .crt)**.
-3. In the app, open **Advanced**, set **Company CA certificate (.pem)** to that file, and Save.
+- `search`: steps that run one query. The default opens `…/app/search/search?q=<query>` on the Statistics tab. Actions are `goto`, `click`, `fill`, `press` and `wait_for`, with `{url}`, `{locale}`, `{query}`, `{earliest}` and `{latest}` placeholders.
+- `results`: the element that shows the search has finished (`done`), Splunk's error message, the "No results found" message, the results table, its header, row and cell elements, and the Next-page button. Rows are read page by page, up to `search.max_rows` (default 5000) per query.
+- `login_page`: an element only shown on the login page, used to notice an expired login.
 
-Only if that is impossible, tick **Ignore HTTPS errors** instead.
+The defaults are drafted for Splunk Enterprise 9.x and may not match your Splunk. If **Test UI steps** reports a selector with `0 match(es)`, open the screenshot, find the right element (right-click → **Inspect** in Chrome) and change that selector in `ui_steps.yaml`. Queries that don't already end in a `| table ...` command get `| table *` added, so results always show as a table whose headers name the fields.
+
+If Chrome itself shows a certificate error page for Splunk, tick **Ignore HTTPS errors** in **Advanced**.
 
 ## Writing the two queries
 
@@ -67,15 +70,15 @@ Every column the query outputs is copied to Excel in the same order.
 
 ## How results are fetched
 
-Searches run through Splunk Web's built-in proxy using your browser login, and come back as full JSON results (see [ADR 0001](docs/adr/0001-browser-login-with-splunkd-web-proxy.md)). If that proxy is blocked, every API shows `ERROR` with the HTTP status. A fallback that reads the Search page would then be built against your real Splunk (plan Task 8).
+Results are read from the Statistics table on Splunk's Search page (see [ADR 0003](docs/adr/0003-ui-scraping-replaces-splunkd-proxy.md)). Long cell values are copied as Splunk shows them, and multivalue cells are joined with `, `.
 
 
 ## Checklist for the first run on the company laptop
 
 - [ ] `SplunkSequence.exe` starts (SmartScreen "Run anyway" is fine).
-- [ ] Chrome opens with the app's own profile, and login is detected; on the second run you are still logged in.
-- [ ] If certificate errors appear, the Company CA certificate setting fixes them.
-- [ ] Searches return rows (CSRF header accepted). If every API is `ERROR` with `HTTP 401`/`403`, send the `.log` file.
+- [ ] Chrome opens with the app's own profile, and **Continue** starts the run; on the second run you are still logged in.
+- [ ] **Test UI steps** reports `UI steps OK` with the expected columns. If not, fix the selectors it reports in `ui_steps.yaml`, or send the `.log` and `_probe.png`.
+- [ ] A search with more than 100 rows returns all of them (paging works).
 - [ ] A 2–3 API list yields a workbook with working Index hyperlinks, plus a `.log` next to it.
 - [ ] Stop mid-run ends after the current API.
 
@@ -96,7 +99,7 @@ copy config.example.yaml config.yaml
 - `--file`: one endpoint per line; blank lines and `#` lines are ignored, duplicates skipped with a warning.
 - `--earliest` / `--latest`: override the time range for this run only. Use the `=` form (`--earliest=-4h`), because a value starting with `-` would otherwise be read as an option.
 - `--config`: use a config file other than `config.yaml`.
-- Exit codes: `0` run completed (some APIs may still be `NO_SESSION`/`ERROR`), `1` bad config, bad arguments, missing input file or browser failed to start, `2` login not detected in time.
+- Exit codes: `0` run completed (some APIs may still be `NO_SESSION`/`ERROR`), `1` bad config, bad arguments, missing input file or browser failed to start, `2` login not confirmed in time. The command line asks you to press Enter once you are logged in.
 - `app.py` opens the window.
 
 To build the app yourself: `pip install pyinstaller`, then `powershell -File build.ps1`; the result is `dist\SplunkSequence\`. Pushing a tag like `v1.0.1` makes GitHub Actions build, self-test and publish the zip as a Release.

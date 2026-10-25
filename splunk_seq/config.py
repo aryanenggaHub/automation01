@@ -9,8 +9,6 @@ from pathlib import Path
 
 import yaml
 
-from .paths import resolve_in_app
-
 CHANNELS = ("chrome", "msedge")
 
 DEFAULT_LAYER_COLUMNS = {
@@ -19,6 +17,10 @@ DEFAULT_LAYER_COLUMNS = {
     "Downstream API": "Downstream Integration (API)",
     "Downstream MQ": "Downstream Integration (MQ)",
 }
+
+
+# Searches now run inside the browser, which already trusts the company's certificates (ADR 0003).
+RETIRED_CA_CERT = "Warning: browser.ca_cert_file is no longer used and is ignored; Save in the app removes it"
 
 
 class ConfigError(Exception):
@@ -36,7 +38,6 @@ class SplunkCfg:
 class BrowserCfg:
     channel: str
     ignore_https_errors: bool
-    ca_cert_file: str
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,7 @@ class SearchCfg:
     earliest: str
     latest: str
     timeout_seconds: int
+    max_rows: int
 
 
 @dataclass(frozen=True)
@@ -76,6 +78,7 @@ class Config:
     session: SessionCfg
     sequence: SequenceCfg
     output: OutputCfg
+    warnings: tuple[str, ...] = ()  # logged at the start of a run
 
 
 def _section(raw: dict, name: str) -> dict:
@@ -140,9 +143,7 @@ def parse_config(raw: dict) -> Config:
     channel = browser.get("channel", "chrome")
     if channel not in CHANNELS:
         raise ConfigError(f"Config key 'browser.channel' must be one of {', '.join(CHANNELS)}")
-    ca_cert_file = browser.get("ca_cert_file") or ""
-    if not isinstance(ca_cert_file, str) or (ca_cert_file and not resolve_in_app(ca_cert_file).is_file()):
-        raise ConfigError(f"Config key 'browser.ca_cert_file': file not found: {ca_cert_file}")
+    warnings = (RETIRED_CA_CERT,) if browser.get("ca_cert_file") else ()
 
     layer_columns = sequence.get("layer_columns", DEFAULT_LAYER_COLUMNS)
     if (
@@ -161,12 +162,12 @@ def parse_config(raw: dict) -> Config:
         browser=BrowserCfg(
             channel=channel,
             ignore_https_errors=browser.get("ignore_https_errors", False),
-            ca_cert_file=ca_cert_file,
         ),
         search=SearchCfg(
             earliest=_time(search, "earliest", "-24h"),
             latest=_time(search, "latest", "now"),
             timeout_seconds=_positive_int(search, "search", "timeout_seconds", 300),
+            max_rows=_positive_int(search, "search", "max_rows", 5000),
         ),
         session=SessionCfg(
             query=_required_str(session, "session", "query"),
@@ -184,6 +185,7 @@ def parse_config(raw: dict) -> Config:
             dir=_str(output, "output", "dir", "output"),
             filename_prefix=_str(output, "output", "filename_prefix", "api_sequence"),
         ),
+        warnings=warnings,
     )
 
 
@@ -195,6 +197,9 @@ def with_overrides(cfg: Config, earliest: str | None, latest: str | None) -> Con
 def save_config(path: Path, raw: dict) -> Config:
     """Validate raw settings, then write them as YAML. Invalid settings leave the file untouched."""
     cfg = parse_config(raw)
+    browser = raw.get("browser")
+    if isinstance(browser, dict):
+        browser.pop("ca_cert_file", None)  # retired; saving drops it so the warning goes away
     try:
         Path(path).write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8")
     except OSError as exc:

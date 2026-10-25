@@ -3,7 +3,7 @@ import pytest
 from splunk_seq.errors import LoginExpired, SearchError
 from splunk_seq.fetch import with_relogin
 
-RELOGIN_MSG = "Splunk login expired — log in again in the browser window"
+from splunk_seq.fetch import RELOGIN_MESSAGE as RELOGIN_MSG
 
 
 def scripted(*outcomes):
