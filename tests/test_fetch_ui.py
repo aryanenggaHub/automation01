@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 import pytest
@@ -9,18 +10,22 @@ from splunk_seq.ui_steps import load_ui_steps, parse_ui_steps
 
 ROOT = Path(__file__).parent.parent
 
-STEPS = parse_ui_steps({
-    "login_page": "#login",
-    "search": [
-        {"goto": "{url}/{locale}/search?q={query}&earliest={earliest}"},
-        {"fill": {"selector": "#q", "value": "{query}"}},
-        {"wait_for": "#ready"},
-    ],
-    "results": {
-        "done": "#done", "error": "#err", "no_results": "#none",
-        "table": "table", "header": "th", "row": "tr", "cell": "td",
-    },
-})
+def with_steps(*search):
+    return parse_ui_steps({
+        "login_page": "#login",
+        "search": list(search),
+        "results": {
+            "done": "#done", "error": "#err", "no_results": "#none",
+            "table": "table", "header": "th", "row": "tr", "cell": "td",
+        },
+    })
+
+
+STEPS = with_steps(
+    {"goto": "{url}/{locale}/search?q={query}&earliest={earliest}"},
+    {"fill": {"selector": "#q", "value": "{query}"}},
+    {"wait_for": "#ready"},
+)
 
 
 def make_cfg(**search):
@@ -113,13 +118,16 @@ class FakePage:
             raise TimeoutError(f"Timeout {timeout}ms exceeded.\nwaiting for {selector}")
         self.calls.append(("wait_for", selector))
 
+    def pause(self):
+        self.calls.append(("pause",))
+
     def locator(self, selector):
         return FakeLocator(self, selector)
 
 
-def fetcher(page, cfg=None, log=lambda m: None):
+def fetcher(page, cfg=None, log=lambda m: None, steps=STEPS):
     fake = FakeClock()
-    return UiFetcher(cfg or make_cfg(), STEPS, page, log, fake.sleep, fake.clock)
+    return UiFetcher(cfg or make_cfg(), steps, page, log, fake.sleep, fake.clock)
 
 
 def test_steps_get_placeholders_url_encoded_only_in_goto():
@@ -182,6 +190,21 @@ def test_multiple_visible_matches_warn_once():
 
 def test_invalid_selector_is_not_visible():
     assert fetcher(FakePage())._visible("bad[", "results.done") is False
+
+
+def test_pause_opens_inspector_from_source(monkeypatch):
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    page = FakePage(visible={"#none"})
+    fetcher(page, steps=with_steps({"pause": None})).run_search("search x", "-1h", "now")
+    assert ("pause",) in page.calls
+
+
+def test_pause_is_skipped_in_the_exe(monkeypatch):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    logs, page = [], FakePage(visible={"#none"})
+    fetcher(page, steps=with_steps({"pause": None}), log=logs.append).run_search("search x", "-1h", "now")
+    assert ("pause",) not in page.calls
+    assert "  pause step skipped: run from source to open the Playwright Inspector" in logs
 
 
 def test_selector_report_counts_matches():

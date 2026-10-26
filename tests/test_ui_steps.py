@@ -26,6 +26,7 @@ def test_every_action_parses():
         {"fill": {"selector": "#q", "value": "{query}"}},
         {"press": {"selector": "#q", "key": "Enter"}},
         {"wait_for": "#b"},
+        {"pause": None},
     ]}
     assert parse_ui_steps(raw).search == (
         Step("goto", value="{url}"),
@@ -33,6 +34,7 @@ def test_every_action_parses():
         Step("fill", "#q", "{query}"),
         Step("press", "#q", "Enter"),
         Step("wait_for", selector="#b"),
+        Step("pause"),
     )
 
 
@@ -49,6 +51,7 @@ def test_optional_results_default_blank():
         ([{"fill": {"selector": "#q"}}], r"search\[1\]\.value"),
         ([{"click": "#a", "goto": "{url}"}], r"search\[1\] must be one action"),
         ([], r"ui_steps\.search"),
+        ([{"pause": "x"}], r"search\[1\]: 'pause' takes no value"),
     ],
 )
 def test_bad_step_is_named(search, match):

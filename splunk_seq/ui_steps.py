@@ -10,13 +10,13 @@ import yaml
 from .config import ConfigError, _required_str, _section
 
 UI_STEPS_NAME = "ui_steps.yaml"
-ACTIONS = ("goto", "click", "fill", "press", "wait_for")
+ACTIONS = ("goto", "click", "fill", "press", "wait_for", "pause")
 
 
 @dataclass(frozen=True)
 class Step:
     action: str  # one of ACTIONS
-    selector: str = ""  # element for click / fill / press / wait_for
+    selector: str = ""  # element for click / fill / press / wait_for (pause takes nothing)
     value: str = ""  # URL for goto, text for fill, key for press
 
 
@@ -53,6 +53,10 @@ def _step(raw, where: str) -> Step:
     action, arg = next(iter(raw.items()))
     if action not in ACTIONS:
         raise ConfigError(f"{where}: unknown action '{action}' (use {', '.join(ACTIONS)})")
+    if action == "pause":
+        if arg is not None:
+            raise ConfigError(f"{where}: 'pause' takes no value")
+        return Step(action)
     if action in ("goto", "click", "wait_for"):
         if not isinstance(arg, str) or not arg.strip():
             raise ConfigError(f"{where}: '{action}' needs a {'URL' if action == 'goto' else 'selector'}")

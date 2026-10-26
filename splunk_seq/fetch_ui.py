@@ -5,6 +5,7 @@ Everything goes through the browser, so Chrome's own certificate store, proxy an
 
 from __future__ import annotations
 
+import sys
 import time
 from typing import Callable
 from urllib.parse import quote
@@ -90,6 +91,11 @@ class UiFetcher:
             self.page.fill(step.selector, self._fill_in(step.value, values, encode=False))
         elif step.action == "press":
             self.page.press(step.selector, step.value)
+        elif step.action == "pause":
+            if getattr(sys, "frozen", False):  # the exe has no Playwright Inspector
+                self.log("  pause step skipped: run from source to open the Playwright Inspector")
+            else:
+                self.page.pause()
         else:
             self.page.wait_for_selector(step.selector, state="visible", timeout=timeout_ms)
 

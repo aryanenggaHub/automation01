@@ -15,11 +15,12 @@
 # Seen mid-run, it means the login expired: the app asks you to log in again and retries once.
 login_page: "form.loginForm, input#username"
 
-# Steps that run one search. Actions: goto, click, fill, press, wait_for.
+# Steps that run one search. Actions: goto, click, fill, press, wait_for, pause.
 #   - click: "<selector>"
 #   - fill: {selector: "<selector>", value: "{query}"}
 #   - press: {selector: "<selector>", key: "Enter"}
 #   - wait_for: "<selector>"   (waits up to search.timeout_seconds)
+#   - pause:                   (run from source: opens the Playwright Inspector here; the exe skips it)
 search:
   - goto: "{url}/{locale}/app/search/search?q={query}&earliest={earliest}&latest={latest}&display.page.search.tab=statistics&display.prefs.statistics.count=100"
 
