@@ -111,6 +111,6 @@ When **Test UI steps** isn't enough to find the right selector, run the app from
 3. The Inspector opens on the logged-in Splunk page at that step. Use **Pick locator** to click an element and see a selector for it, or type a selector to highlight what it matches. Press **Resume** to continue the run.
 4. Copy the selector that works into `ui_steps.yaml` and click **Test UI steps** again; no restart needed.
 
-Without Splunk at hand, open `ui_test_page.html` from a previous test in Chrome and try selectors in DevTools (`document.querySelectorAll("...")`); Playwright-only parts such as `:visible` don't work there. The packaged app skips `pause` steps, so leaving one in is harmless.
+Without Splunk at hand, open `ui_test_page.html` from a previous test in Chrome and try selectors in DevTools (`document.querySelectorAll("...")`); Playwright-only parts such as `:visible` don't work there. Remove the `pause` step when you're done: run from source, it stops every search of a full **Run** until you press **Resume**. (The packaged app skips `pause` steps.)
 
 To build the app yourself: `pip install pyinstaller`, then `powershell -File build.ps1`; the result is `dist\SplunkSequence\`. Pushing a tag like `v1.0.1` makes GitHub Actions build, self-test and publish the zip as a Release.

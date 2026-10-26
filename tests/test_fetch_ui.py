@@ -67,7 +67,9 @@ class FakeMatch:
     def inner_text(self):
         return self.page.texts.get(self.selector, "")
 
-    def bounding_box(self):
+    def bounding_box(self, timeout=None):
+        if self.key in self.page.detached:
+            raise TimeoutError("Timeout 1000ms exceeded.")
         return {"x": 0, "y": 10 * self.key[1], "width": 100, "height": 20} if self.visible else None
 
     def locator(self, sub):
@@ -102,8 +104,9 @@ class FakePage:
     are what a match's table holds, keyed by (selector, match index).
     """
 
-    def __init__(self, visible=(), texts=None, missing=None, matches=None, headers=None, rows=None):
+    def __init__(self, visible=(), texts=None, missing=None, matches=None, headers=None, rows=None, detached=()):
         self.visible = set(visible)
+        self.detached = set(detached)  # (selector, index) whose element vanished: bounding_box times out
         self.texts = texts or {}
         self.missing = missing
         self.matches = matches or {}
@@ -190,6 +193,20 @@ def test_multiple_visible_matches_warn_once():
                     headers={("table", 0): ["a"]}, rows={("table", 0): [["1"]]})
     fetcher(page, log=logs.append).run_search("search x", "-1h", "now")
     assert logs.count("  Warning: results.table: 2 visible matches, used #1  [table]") == 1
+
+
+def test_presence_selectors_with_several_visible_matches_do_not_warn():
+    logs = []
+    page = FakePage(matches={"#login": [True, True]})
+    with pytest.raises(LoginExpired):
+        fetcher(page, log=logs.append).run_search("search x", "-1h", "now")
+    assert not any("Warning" in line for line in logs)
+
+
+def test_selector_report_survives_element_vanishing():
+    report = fetcher(FakePage(visible={"#done"}, detached={("#done", 0)})).selector_report()
+    i = report.index("  results.done: 1 match(es), 1 visible  [#done]")
+    assert report[i + 1] == "    #1 visible  <- used"
 
 
 def test_invalid_selector_is_not_visible():

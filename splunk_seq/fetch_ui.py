@@ -52,21 +52,25 @@ class UiFetcher:
     def _wait(self, check: Callable[[], bool], timeout_s: float) -> bool:
         return wait_until(check, timeout_s, 0.5, self._sleep, self._clock)
 
-    def _pick(self, selector: str, name: str):
-        """First visible match of `selector` (Splunk keeps hidden copies of elements), else None."""
+    def _pick(self, selector: str, name: str, warn: bool = True):
+        """First visible match of `selector` (Splunk keeps hidden copies of elements), else None.
+
+        warn: log once if several are visible. Only for elements the app reads or clicks; selectors
+        that just signal a state (login_page, done, ...) may match several on purpose.
+        """
         if not selector:
             return None
         try:
             shown = [m for m in self.page.locator(selector).all() if m.is_visible()]
         except Exception:
             return None
-        if len(shown) > 1 and selector not in self._warned:
+        if warn and len(shown) > 1 and selector not in self._warned:
             self._warned.add(selector)
             self.log(f"  Warning: {name}: {len(shown)} visible matches, used #1  [{selector}]")
         return shown[0] if shown else None
 
     def _visible(self, selector: str, name: str) -> bool:
-        return self._pick(selector, name) is not None
+        return self._pick(selector, name, warn=False) is not None
 
     def _fail(self, message: str):
         if self._visible(self.steps.login_page, "login_page"):
@@ -201,7 +205,10 @@ class UiFetcher:
             lines.append(f"  {name}: {len(matches)} match(es), {sum(shown)} visible  [{selector}]")
             used = shown.index(True) if True in shown else -1
             for i, (match, visible) in enumerate(zip(matches, shown)):
-                box = match.bounding_box() if visible else None
+                try:  # bounding_box waits for the element; it may have been re-rendered since all()
+                    box = match.bounding_box(timeout=1000) if visible else None
+                except Exception:
+                    box = None
                 where = "visible" if visible else "hidden"
                 if box:
                     where += f" {box['width']:.0f}x{box['height']:.0f} at ({box['x']:.0f},{box['y']:.0f})"

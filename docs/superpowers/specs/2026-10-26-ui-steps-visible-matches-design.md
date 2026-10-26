@@ -17,8 +17,10 @@ renders a second copy of the results table (a fixed header clone) that comes fir
    Headers and rows always come from the same table.
 4. **Empty-table guard:** if the chosen table has no rows on its first page and `no_results` is not
    visible, raise `SearchError` naming `results.table` (silent empty results are wrong answers).
-5. **Ambiguity warning:** when a selector has more than one visible match, log once per selector
-   per run: `Warning: <name>: 2 visible matches, used #1  [<selector>]`.
+5. **Ambiguity warning:** when a selector the app reads or clicks (`error`, `table`, `next`) has
+   more than one visible match, log once per selector per run:
+   `Warning: <name>: 2 visible matches, used #1  [<selector>]`. Presence-only selectors
+   (`login_page`, `done`, `no_results`, `next_disabled`) may match several on purpose and don't warn.
 6. **`pause` step:** `- pause:` in `search`. Run from source it calls `page.pause()` (Playwright
    Inspector on the live page). In the packaged exe it is skipped with a log line.
 7. **Richer "Test UI steps":** per selector, every match with visible/hidden, size and position,
