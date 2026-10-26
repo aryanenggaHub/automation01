@@ -21,7 +21,7 @@ If Chrome never opens or never reacts, open `chrome://policy` in Chrome and sear
 - **Save** checks the settings and writes `config.yaml` next to the app. Problems are shown in a dialog, such as a missing Splunk URL.
 - **Run** saves first, then opens the browser at your Splunk URL. Log in there (SSO/MFA works), then click **Continue (I'm logged in)**; the run starts then. The app uses its own browser profile (`browser-profile` folder), so you stay logged in between runs. If your company needs a sign-in extension (for example Microsoft's *Windows Accounts*), install it once in that browser window.
 - **Stop** finishes the current Input API and stops. Everything done so far is already saved.
-- **Test UI steps** runs only the first Input API's Session Query and reports which `ui_steps.yaml` selectors matched, plus a screenshot (`..._probe.png`) of the page. Use it on the first run, and whenever a run fails on a UI step.
+- **Test UI steps** runs only the first Input API's Session Query and reports, for each `ui_steps.yaml` selector, every element it matched (visible or hidden, size and position) and which one the app uses, then previews the headers and first 3 rows the app would read. It also saves a screenshot (`..._probe.png`) and the page HTML (`ui_test_page.html`, overwritten by each test; it contains the search results) next to the log. `ui_steps.yaml` is read again on every click, so you can edit a selector and test again without restarting. Use it on the first run, and whenever a run fails on a UI step.
 - **Open output folder** shows the results: `api_sequence_<YYYYMMDD_HHMMSS>.xlsx` plus a matching `.log` file with everything the log pane showed. Send me the `.log` when something goes wrong.
 
 The workbook is saved after every API. If you open it in Excel mid-run, saves fail with a warning and are retried; close it to let the run save again. If your login expires mid-run (the login page shows), the app asks you to log in again in the open browser, waits for **Continue**, and retries once.
@@ -101,5 +101,16 @@ copy config.example.yaml config.yaml
 - `--config`: use a config file other than `config.yaml`.
 - Exit codes: `0` run completed (some APIs may still be `NO_SESSION`/`ERROR`), `1` bad config, bad arguments, missing input file or browser failed to start, `2` login not confirmed in time. The command line asks you to press Enter once you are logged in.
 - `app.py` opens the window.
+
+### Debugging selectors from source
+
+When **Test UI steps** isn't enough to find the right selector, run the app from source (commands above) and let Playwright's Inspector show you the live page:
+
+1. In `ui_steps.yaml`, add `- pause:` to `search` where you want to stop, usually as the last step.
+2. Run `.venv\Scripts\python app.py`, log in, and click **Test UI steps**.
+3. The Inspector opens on the logged-in Splunk page at that step. Use **Pick locator** to click an element and see a selector for it, or type a selector to highlight what it matches. Press **Resume** to continue the run.
+4. Copy the selector that works into `ui_steps.yaml` and click **Test UI steps** again; no restart needed.
+
+Without Splunk at hand, open `ui_test_page.html` from a previous test in Chrome and try selectors in DevTools (`document.querySelectorAll("...")`); Playwright-only parts such as `:visible` don't work there. Remove the `pause` step when you're done: run from source, it stops every search of a full **Run** until you press **Resume**. (The packaged app skips `pause` steps.)
 
 To build the app yourself: `pip install pyinstaller`, then `powershell -File build.ps1`; the result is `dist\SplunkSequence\`. Pushing a tag like `v1.0.1` makes GitHub Actions build, self-test and publish the zip as a Release.

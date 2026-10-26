@@ -114,4 +114,10 @@ def _probe(cfg: Config, api: str, fetcher: UiFetcher, tee, path: Path, log_path:
         tee(f"Screenshot: {shot}")
     except Exception as exc:
         tee(f"Could not save a screenshot: {exc}")
+    html = log_path.with_name("ui_test_page.html")  # one file, overwritten by every test
+    try:
+        html.write_text(fetcher.page.content(), encoding="utf-8")
+        tee(f"Page HTML (contains search results): {html}")
+    except Exception as exc:
+        tee(f"Could not save page HTML: {exc}")
     return JobResult(code, None, log_path)

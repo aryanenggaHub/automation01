@@ -4,7 +4,9 @@
 # (Chrome: right-click the element > Inspect; or `playwright codegen <your Splunk URL>`).
 #
 # Selectors are Playwright selectors: CSS ("table.results"), text ("text=No results found"),
-# or several separated by commas. Placeholders in steps:
+# or several separated by commas. When a selector matches several elements the app uses the
+# first visible one; narrow it with ":visible" (skip hidden ones) or ":has(<selector>)" (keep only
+# elements containing that), e.g. "table:visible:has(tbody tr)". Placeholders in steps:
 #   {url} {locale}     from config.yaml (splunk.url, splunk.locale)
 #   {query}            the full SPL to run (URL-encoded inside goto, as typed elsewhere)
 #   {earliest} {latest} the time range
@@ -15,11 +17,12 @@
 # Seen mid-run, it means the login expired: the app asks you to log in again and retries once.
 login_page: "form.loginForm, input#username"
 
-# Steps that run one search. Actions: goto, click, fill, press, wait_for.
+# Steps that run one search. Actions: goto, click, fill, press, wait_for, pause.
 #   - click: "<selector>"
 #   - fill: {selector: "<selector>", value: "{query}"}
 #   - press: {selector: "<selector>", key: "Enter"}
 #   - wait_for: "<selector>"   (waits up to search.timeout_seconds)
+#   - pause:                   (run from source: opens the Playwright Inspector here; the exe skips it)
 search:
   - goto: "{url}/{locale}/app/search/search?q={query}&earliest={earliest}&latest={latest}&display.page.search.tab=statistics&display.prefs.statistics.count=100"
 
@@ -30,7 +33,10 @@ results:
   done: ".jobstatus .icon-check"
   error: ".alert-error"                                               # Splunk's error message
   no_results: "text=No results found"
-  table: ".search-results-statistics table"
+  # Splunk also draws a header-only copy of the table (to keep the header fixed while scrolling).
+  # :visible skips hidden matches and :has(tbody tr) skips tables without rows, so this matches
+  # only the table that holds the results.
+  table: ".search-results-statistics table:visible:has(tbody tr)"
   header: "thead th"        # header cells; their text is the field name
   row: "tbody tr"
   cell: "td"

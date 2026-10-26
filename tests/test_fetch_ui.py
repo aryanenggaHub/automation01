@@ -1,3 +1,5 @@
+import dataclasses
+import sys
 from pathlib import Path
 
 import pytest
@@ -9,18 +11,25 @@ from splunk_seq.ui_steps import load_ui_steps, parse_ui_steps
 
 ROOT = Path(__file__).parent.parent
 
-STEPS = parse_ui_steps({
+RAW = {
     "login_page": "#login",
-    "search": [
-        {"goto": "{url}/{locale}/search?q={query}&earliest={earliest}"},
-        {"fill": {"selector": "#q", "value": "{query}"}},
-        {"wait_for": "#ready"},
-    ],
+    "search": [{"goto": "{url}"}],
     "results": {
         "done": "#done", "error": "#err", "no_results": "#none",
         "table": "table", "header": "th", "row": "tr", "cell": "td",
     },
-})
+}
+
+
+def with_steps(*search):
+    return parse_ui_steps({**RAW, "search": list(search)})
+
+
+STEPS = with_steps(
+    {"goto": "{url}/{locale}/search?q={query}&earliest={earliest}"},
+    {"fill": {"selector": "#q", "value": "{query}"}},
+    {"wait_for": "#ready"},
+)
 
 
 def make_cfg(**search):
@@ -43,29 +52,66 @@ class FakeClock:
         self.now += seconds
 
 
-class FakeLocator:
-    def __init__(self, page, selector):
+class FakeMatch:
+    """One element a selector matched; inside it every sub-selector reads that match's headers/rows."""
+
+    def __init__(self, page, selector, index, visible):
         self.page = page
+        self.key = (selector, index)
         self.selector = selector
-        self.first = self
+        self.visible = visible
 
     def is_visible(self):
-        return self.selector in self.page.visible
+        return self.visible
 
     def inner_text(self):
         return self.page.texts.get(self.selector, "")
 
+    def bounding_box(self, timeout=None):
+        if self.key in self.page.detached:
+            raise TimeoutError("Timeout 1000ms exceeded.")
+        return {"x": 0, "y": 10 * self.key[1], "width": 100, "height": 20} if self.visible else None
+
+    def locator(self, sub):
+        return self
+
+    def all_inner_texts(self):
+        return self.page.headers.get(self.key, [])
+
+    def evaluate_all(self, js, cell):
+        return self.page.rows.get(self.key, [])
+
+
+class FakeLocator:
+    def __init__(self, page, selector):
+        self.page = page
+        self.selector = selector
+
+    def all(self):
+        if self.selector == "bad[":
+            raise ValueError("Unexpected token")
+        flags = self.page.matches.get(self.selector, [True] if self.selector in self.page.visible else [])
+        return [FakeMatch(self.page, self.selector, i, v) for i, v in enumerate(flags)]
+
     def count(self):
-        return int(self.selector in self.page.visible)
+        return len(self.all())
 
 
 class FakePage:
-    """Records actions; the selectors in `visible` are on screen. A wait_for of `missing` times out."""
+    """Records actions; the selectors in `visible` are on screen. A wait_for of `missing` times out.
 
-    def __init__(self, visible=(), texts=None, missing=None):
+    `matches` gives a selector several matches, {selector: [visible, ...]}; `headers` and `rows`
+    are what a match's table holds, keyed by (selector, match index).
+    """
+
+    def __init__(self, visible=(), texts=None, missing=None, matches=None, headers=None, rows=None, detached=()):
         self.visible = set(visible)
+        self.detached = set(detached)  # (selector, index) whose element vanished: bounding_box times out
         self.texts = texts or {}
         self.missing = missing
+        self.matches = matches or {}
+        self.headers = headers or {}
+        self.rows = rows or {}
         self.calls = []
 
     def goto(self, url):
@@ -79,13 +125,16 @@ class FakePage:
             raise TimeoutError(f"Timeout {timeout}ms exceeded.\nwaiting for {selector}")
         self.calls.append(("wait_for", selector))
 
+    def pause(self):
+        self.calls.append(("pause",))
+
     def locator(self, selector):
         return FakeLocator(self, selector)
 
 
-def fetcher(page, cfg=None):
+def fetcher(page, cfg=None, log=lambda m: None, steps=STEPS):
     fake = FakeClock()
-    return UiFetcher(cfg or make_cfg(), STEPS, page, lambda m: None, fake.sleep, fake.clock)
+    return UiFetcher(cfg or make_cfg(), steps, page, log, fake.sleep, fake.clock)
 
 
 def test_steps_get_placeholders_url_encoded_only_in_goto():
@@ -126,11 +175,83 @@ def test_search_that_never_finishes_names_done_selector():
         fetcher(FakePage()).run_search("search x", "-1h", "now")
 
 
+def test_table_is_read_from_first_visible_match():
+    page = FakePage(visible={"#done"}, matches={"table": [False, True]},
+                    headers={("table", 1): ["sessionId"]}, rows={("table", 1): [["s1"]]})
+    assert fetcher(page).run_search("search x", "-1h", "now") == [{"sessionId": "s1"}]
+
+
+def test_visible_table_without_rows_is_an_error_not_empty_result():
+    page = FakePage(visible={"#done"}, matches={"table": [True]}, headers={("table", 0): ["sessionId"]})
+    with pytest.raises(SearchError, match=r"results\.table matched a table with no rows.*\[table\]"):
+        fetcher(page).run_search("search x", "-1h", "now")
+
+
+def test_multiple_visible_matches_warn_once():
+    logs = []
+    page = FakePage(visible={"#done"}, matches={"table": [True, True]},
+                    headers={("table", 0): ["a"]}, rows={("table", 0): [["1"]]})
+    fetcher(page, log=logs.append).run_search("search x", "-1h", "now")
+    assert logs.count("  Warning: results.table: 2 visible matches, used #1  [table]") == 1
+
+
+def test_presence_selectors_with_several_visible_matches_do_not_warn():
+    logs = []
+    page = FakePage(matches={"#login": [True, True]})
+    with pytest.raises(LoginExpired):
+        fetcher(page, log=logs.append).run_search("search x", "-1h", "now")
+    assert not any("Warning" in line for line in logs)
+
+
+def test_selector_report_survives_element_vanishing():
+    report = fetcher(FakePage(visible={"#done"}, detached={("#done", 0)})).selector_report()
+    i = report.index("  results.done: 1 match(es), 1 visible  [#done]")
+    assert report[i + 1] == "    #1 visible  <- used"
+
+
+def test_invalid_selector_is_not_visible():
+    assert fetcher(FakePage())._visible("bad[", "results.done") is False
+
+
+def test_pause_opens_inspector_from_source(monkeypatch):
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    page = FakePage(visible={"#none"})
+    fetcher(page, steps=with_steps({"pause": None})).run_search("search x", "-1h", "now")
+    assert ("pause",) in page.calls
+
+
+def test_pause_is_skipped_in_the_exe(monkeypatch):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    logs, page = [], FakePage(visible={"#none"})
+    fetcher(page, steps=with_steps({"pause": None}), log=logs.append).run_search("search x", "-1h", "now")
+    assert ("pause",) not in page.calls
+    assert "  pause step skipped: run from source to open the Playwright Inspector" in logs
+
+
 def test_selector_report_counts_matches():
     report = fetcher(FakePage(visible={"#done"})).selector_report()
-    assert "  results.done: 1 match(es), visible  [#done]" in report
-    assert "  login_page: 0 match(es), not visible  [#login]" in report
+    i = report.index("  results.done: 1 match(es), 1 visible  [#done]")
+    assert report[i + 1] == "    #1 visible 100x20 at (0,0)  <- used"
+    assert "  login_page: 0 match(es)  [#login]" in report
+    assert "  preview: no visible results.table" in report
     assert not any("results.next" in line for line in report)  # blank selectors are skipped
+
+
+def test_selector_report_lists_every_match():
+    page = FakePage(visible={"#done"}, matches={"table": [False, True]},
+                    headers={("table", 1): ["sessionId", "Timestamp"]},
+                    rows={("table", 1): [["s1", "10:00"], ["s2", "10:01"], ["s3", "x"], ["s4", "y"]]})
+    report = fetcher(page).selector_report()
+    i = report.index("  results.table: 2 match(es), 1 visible  [table]")
+    assert report[i + 1:i + 3] == ["    #1 hidden", "    #2 visible 100x20 at (0,10)  <- used"]
+    assert "  preview: headers: sessionId, Timestamp" in report
+    assert "  preview: row 3: s3 | x" in report and not any("row 4" in line for line in report)
+
+
+def test_selector_report_names_invalid_selector():
+    steps = parse_ui_steps({**RAW, "login_page": "bad["})
+    report = fetcher(FakePage(), steps=steps).selector_report()
+    assert "  login_page: invalid selector (Unexpected token)  [bad[]" in report
 
 
 # ---- real browser against a fake Splunk Search page ----------------------------------
@@ -138,6 +259,7 @@ def test_selector_report_counts_matches():
 FAKE_SEARCH_PAGE = """<!doctype html><html><body>
 <div class="jobstatus"><i id="check"></i></div>
 <div class="search-results-statistics">
+  <table class="header-clone"><thead><tr><th></th><th>sessionId</th><th>Timestamp</th></tr></thead></table>
   <table><thead><tr><th></th><th>sessionId</th><th>Timestamp</th></tr></thead><tbody></tbody></table>
   <div class="pagination"><ul><li class="next"><a href="#">Next &raquo;</a></li></ul></div>
 </div>
@@ -180,7 +302,7 @@ def chrome_page():
     playwright.stop()
 
 
-def search_fake_splunk(browser, cfg):
+def search_fake_splunk(browser, cfg, steps=None):
     page = browser.new_page()
     requested = []
 
@@ -191,7 +313,8 @@ def search_fake_splunk(browser, cfg):
     page.route("https://splunk.test/**", serve)
     logs = []
     try:
-        rows = UiFetcher(cfg, load_ui_steps(ROOT / "ui_steps.yaml"), page, logs.append).run_search("search index=x", "-1h", "now")
+        steps = steps or load_ui_steps(ROOT / "ui_steps.yaml")
+        rows = UiFetcher(cfg, steps, page, logs.append).run_search("search index=x", "-1h", "now")
     finally:
         page.close()
     return rows, requested, logs
@@ -203,6 +326,13 @@ def test_shipped_steps_read_every_page_of_the_table(chrome_page):
     assert rows[0] == {"sessionId": "s1", "Timestamp": "10:00"}  # blank row-number header dropped
     assert "q=search%20index%3Dx%20%7C%20table%20%2A" in requested[0]
     assert logs == []
+
+
+def test_old_table_selector_hits_the_header_clone(chrome_page):
+    steps = load_ui_steps(ROOT / "ui_steps.yaml")
+    results = dataclasses.replace(steps.results, table=".search-results-statistics table")
+    with pytest.raises(SearchError, match="results.table matched a table with no rows"):
+        search_fake_splunk(chrome_page, make_cfg(), dataclasses.replace(steps, results=results))
 
 
 def test_max_rows_stops_reading_with_a_warning(chrome_page):

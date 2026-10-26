@@ -5,6 +5,7 @@ Everything goes through the browser, so Chrome's own certificate store, proxy an
 
 from __future__ import annotations
 
+import sys
 import time
 from typing import Callable
 from urllib.parse import quote
@@ -45,21 +46,34 @@ class UiFetcher:
         self.log = log
         self._sleep = sleep
         self._clock = clock
+        self._warned: set[str] = set()  # selectors already warned about having several visible matches
 
     # ---- helpers ------------------------------------------------------
     def _wait(self, check: Callable[[], bool], timeout_s: float) -> bool:
         return wait_until(check, timeout_s, 0.5, self._sleep, self._clock)
 
-    def _visible(self, selector: str) -> bool:
+    def _pick(self, selector: str, name: str, warn: bool = True):
+        """First visible match of `selector` (Splunk keeps hidden copies of elements), else None.
+
+        warn: log once if several are visible. Only for elements the app reads or clicks; selectors
+        that just signal a state (login_page, done, ...) may match several on purpose.
+        """
         if not selector:
-            return False
+            return None
         try:
-            return self.page.locator(selector).first.is_visible()
+            shown = [m for m in self.page.locator(selector).all() if m.is_visible()]
         except Exception:
-            return False
+            return None
+        if warn and len(shown) > 1 and selector not in self._warned:
+            self._warned.add(selector)
+            self.log(f"  Warning: {name}: {len(shown)} visible matches, used #1  [{selector}]")
+        return shown[0] if shown else None
+
+    def _visible(self, selector: str, name: str) -> bool:
+        return self._pick(selector, name, warn=False) is not None
 
     def _fail(self, message: str):
-        if self._visible(self.steps.login_page):
+        if self._visible(self.steps.login_page, "login_page"):
             raise LoginExpired(message)
         raise SearchError(message)
 
@@ -81,6 +95,11 @@ class UiFetcher:
             self.page.fill(step.selector, self._fill_in(step.value, values, encode=False))
         elif step.action == "press":
             self.page.press(step.selector, step.value)
+        elif step.action == "pause":
+            if getattr(sys, "frozen", False):  # the exe has no Playwright Inspector
+                self.log("  pause step skipped: run from source to open the Playwright Inspector")
+            else:
+                self.page.pause()
         else:
             self.page.wait_for_selector(step.selector, state="visible", timeout=timeout_ms)
 
@@ -102,50 +121,61 @@ class UiFetcher:
 
     def _results(self) -> list[Row]:
         r = self.steps.results
-        watched = (self.steps.login_page, r.error, r.no_results, r.done)
+        watched = (
+            (self.steps.login_page, "login_page"), (r.error, "results.error"),
+            (r.no_results, "results.no_results"), (r.done, "results.done"),
+        )
         timeout = self.cfg.search.timeout_seconds
-        if not self._wait(lambda: any(self._visible(s) for s in watched), timeout):
+        if not self._wait(lambda: any(self._visible(s, n) for s, n in watched), timeout):
             self._fail(f"Search did not finish within {timeout}s (nothing matched results.done: {r.done})")
-        if self._visible(self.steps.login_page):
+        if self._visible(self.steps.login_page, "login_page"):
             raise LoginExpired("Splunk login page shown")
-        if self._visible(r.error):
-            raise SearchError(" ".join(self.page.locator(r.error).first.inner_text().split()) or "Splunk reported an error")
-        if self._visible(r.no_results):
+        error = self._pick(r.error, "results.error")
+        if error is not None:
+            raise SearchError(" ".join(error.inner_text().split()) or "Splunk reported an error")
+        if self._visible(r.no_results, "results.no_results"):
             return []
-        if not self._wait(lambda: self._visible(r.table) or self._visible(r.no_results), 10):
+        shown = lambda: self._visible(r.table, "results.table") or self._visible(r.no_results, "results.no_results")
+        if not self._wait(shown, 10):
             raise SearchError(f"Search finished but no results table matched results.table: {r.table}")
-        return [] if self._visible(r.no_results) else self._scrape()
+        return [] if self._visible(r.no_results, "results.no_results") else self._scrape()
 
-    def _page_rows(self) -> list[list[str]]:
+    def _page_rows(self, table) -> list[list[str]]:
         r = self.steps.results
-        return self.page.locator(r.table).first.locator(r.row).evaluate_all(ROWS_JS, r.cell)
+        return table.locator(r.row).evaluate_all(ROWS_JS, r.cell)
 
     def _scrape(self) -> list[Row]:
         r = self.steps.results
         limit = self.cfg.search.max_rows
-        headers = [h.strip() for h in self.page.locator(r.table).first.locator(r.header).all_inner_texts()]
+        table = self._pick(r.table, "results.table")
+        if table is None:
+            raise SearchError(f"Results table disappeared before it could be read  [{r.table}]")
+        headers = [h.strip() for h in table.locator(r.header).all_inner_texts()]
+        if not self._page_rows(table):
+            raise SearchError(
+                "results.table matched a table with no rows; fix the selector so it only matches "
+                f"the table that holds the results  [{r.table}]"
+            )
         rows: list[Row] = []
         while True:
-            page_rows = self._page_rows()
+            page_rows = self._page_rows(table)
             for cells in page_rows:
                 rows.append({h: _cell(c) for h, c in zip(headers, cells) if h})
                 if len(rows) >= limit:
                     self.log(f"  Warning: stopped reading at search.max_rows = {limit} rows; later rows are missing")
                     return rows
-            if not page_rows or not self._next_page(page_rows[0]):
+            if not page_rows or not self._next_page(table, page_rows[0]):
                 return rows
 
-    def _next_page(self, first_row: list[str]) -> bool:
+    def _next_page(self, table, first_row: list[str]) -> bool:
         r = self.steps.results
-        if not r.next or not self._visible(r.next) or self._visible(r.next_disabled):
-            return False
-        button = self.page.locator(r.next).first
-        if button.is_disabled():
+        button = self._pick(r.next, "results.next")
+        if button is None or self._visible(r.next_disabled, "results.next_disabled") or button.is_disabled():
             return False
         button.click()
 
         def moved() -> bool:
-            rows = self._page_rows()
+            rows = self._page_rows(table)
             return bool(rows) and rows[0] != first_row
 
         if not self._wait(moved, PAGE_LOAD_S):
@@ -164,9 +194,38 @@ class UiFetcher:
             if not selector:
                 continue
             try:
-                count = self.page.locator(selector).count()
-                state = f"{count} match(es), {'visible' if self._visible(selector) else 'not visible'}"
+                matches = self.page.locator(selector).all()
+                shown = [m.is_visible() for m in matches]
             except Exception as exc:
-                state = f"invalid selector ({_first_line(exc)})"
-            lines.append(f"  {name}: {state}  [{selector}]")
-        return lines
+                lines.append(f"  {name}: invalid selector ({_first_line(exc)})  [{selector}]")
+                continue
+            if not matches:
+                lines.append(f"  {name}: 0 match(es)  [{selector}]")
+                continue
+            lines.append(f"  {name}: {len(matches)} match(es), {sum(shown)} visible  [{selector}]")
+            used = shown.index(True) if True in shown else -1
+            for i, (match, visible) in enumerate(zip(matches, shown)):
+                try:  # bounding_box waits for the element; it may have been re-rendered since all()
+                    box = match.bounding_box(timeout=1000) if visible else None
+                except Exception:
+                    box = None
+                where = "visible" if visible else "hidden"
+                if box:
+                    where += f" {box['width']:.0f}x{box['height']:.0f} at ({box['x']:.0f},{box['y']:.0f})"
+                lines.append(f"    #{i + 1} {where}{'  <- used' if i == used else ''}")
+        return lines + self._preview()
+
+    def _preview(self) -> list[str]:
+        """The headers and first rows a run would read from the table the app picks."""
+        r = self.steps.results
+        try:
+            table = self._pick(r.table, "results.table")
+            if table is None:
+                return ["  preview: no visible results.table"]
+            headers = [h.strip() for h in table.locator(r.header).all_inner_texts()]
+            rows = self._page_rows(table)[:3]
+        except Exception as exc:
+            return [f"  preview: could not read the table ({_first_line(exc)})"]
+        return [f"  preview: headers: {', '.join(headers)}"] + [
+            f"  preview: row {i}: {' | '.join(_cell(c) for c in cells)}" for i, cells in enumerate(rows, start=1)
+        ]
