@@ -102,4 +102,15 @@ copy config.example.yaml config.yaml
 - Exit codes: `0` run completed (some APIs may still be `NO_SESSION`/`ERROR`), `1` bad config, bad arguments, missing input file or browser failed to start, `2` login not confirmed in time. The command line asks you to press Enter once you are logged in.
 - `app.py` opens the window.
 
+### Debugging selectors from source
+
+When **Test UI steps** isn't enough to find the right selector, run the app from source (commands above) and let Playwright's Inspector show you the live page:
+
+1. In `ui_steps.yaml`, add `- pause:` to `search` where you want to stop, usually as the last step.
+2. Run `.venv\Scripts\python app.py`, log in, and click **Test UI steps**.
+3. The Inspector opens on the logged-in Splunk page at that step. Use **Pick locator** to click an element and see a selector for it, or type a selector to highlight what it matches. Press **Resume** to continue the run.
+4. Copy the selector that works into `ui_steps.yaml` and click **Test UI steps** again; no restart needed.
+
+Without Splunk at hand, open `ui_test_page.html` from a previous test in Chrome and try selectors in DevTools (`document.querySelectorAll("...")`); Playwright-only parts such as `:visible` don't work there. The packaged app skips `pause` steps, so leaving one in is harmless.
+
 To build the app yourself: `pip install pyinstaller`, then `powershell -File build.ps1`; the result is `dist\SplunkSequence\`. Pushing a tag like `v1.0.1` makes GitHub Actions build, self-test and publish the zip as a Release.

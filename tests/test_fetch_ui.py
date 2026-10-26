@@ -1,3 +1,4 @@
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -241,6 +242,7 @@ def test_selector_report_names_invalid_selector():
 FAKE_SEARCH_PAGE = """<!doctype html><html><body>
 <div class="jobstatus"><i id="check"></i></div>
 <div class="search-results-statistics">
+  <table class="header-clone"><thead><tr><th></th><th>sessionId</th><th>Timestamp</th></tr></thead></table>
   <table><thead><tr><th></th><th>sessionId</th><th>Timestamp</th></tr></thead><tbody></tbody></table>
   <div class="pagination"><ul><li class="next"><a href="#">Next &raquo;</a></li></ul></div>
 </div>
@@ -283,7 +285,7 @@ def chrome_page():
     playwright.stop()
 
 
-def search_fake_splunk(browser, cfg):
+def search_fake_splunk(browser, cfg, steps=None):
     page = browser.new_page()
     requested = []
 
@@ -294,7 +296,8 @@ def search_fake_splunk(browser, cfg):
     page.route("https://splunk.test/**", serve)
     logs = []
     try:
-        rows = UiFetcher(cfg, load_ui_steps(ROOT / "ui_steps.yaml"), page, logs.append).run_search("search index=x", "-1h", "now")
+        steps = steps or load_ui_steps(ROOT / "ui_steps.yaml")
+        rows = UiFetcher(cfg, steps, page, logs.append).run_search("search index=x", "-1h", "now")
     finally:
         page.close()
     return rows, requested, logs
@@ -306,6 +309,13 @@ def test_shipped_steps_read_every_page_of_the_table(chrome_page):
     assert rows[0] == {"sessionId": "s1", "Timestamp": "10:00"}  # blank row-number header dropped
     assert "q=search%20index%3Dx%20%7C%20table%20%2A" in requested[0]
     assert logs == []
+
+
+def test_old_table_selector_hits_the_header_clone(chrome_page):
+    steps = load_ui_steps(ROOT / "ui_steps.yaml")
+    results = dataclasses.replace(steps.results, table=".search-results-statistics table")
+    with pytest.raises(SearchError, match="results.table matched a table with no rows"):
+        search_fake_splunk(chrome_page, make_cfg(), dataclasses.replace(steps, results=results))
 
 
 def test_max_rows_stops_reading_with_a_warning(chrome_page):
