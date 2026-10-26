@@ -43,29 +43,63 @@ class FakeClock:
         self.now += seconds
 
 
-class FakeLocator:
-    def __init__(self, page, selector):
+class FakeMatch:
+    """One element a selector matched; inside it every sub-selector reads that match's headers/rows."""
+
+    def __init__(self, page, selector, index, visible):
         self.page = page
+        self.key = (selector, index)
         self.selector = selector
-        self.first = self
+        self.visible = visible
 
     def is_visible(self):
-        return self.selector in self.page.visible
+        return self.visible
 
     def inner_text(self):
         return self.page.texts.get(self.selector, "")
 
+    def bounding_box(self):
+        return {"x": 0, "y": 10 * self.key[1], "width": 100, "height": 20} if self.visible else None
+
+    def locator(self, sub):
+        return self
+
+    def all_inner_texts(self):
+        return self.page.headers.get(self.key, [])
+
+    def evaluate_all(self, js, cell):
+        return self.page.rows.get(self.key, [])
+
+
+class FakeLocator:
+    def __init__(self, page, selector):
+        self.page = page
+        self.selector = selector
+
+    def all(self):
+        if self.selector == "bad[":
+            raise ValueError("Unexpected token")
+        flags = self.page.matches.get(self.selector, [True] if self.selector in self.page.visible else [])
+        return [FakeMatch(self.page, self.selector, i, v) for i, v in enumerate(flags)]
+
     def count(self):
-        return int(self.selector in self.page.visible)
+        return len(self.all())
 
 
 class FakePage:
-    """Records actions; the selectors in `visible` are on screen. A wait_for of `missing` times out."""
+    """Records actions; the selectors in `visible` are on screen. A wait_for of `missing` times out.
 
-    def __init__(self, visible=(), texts=None, missing=None):
+    `matches` gives a selector several matches, {selector: [visible, ...]}; `headers` and `rows`
+    are what a match's table holds, keyed by (selector, match index).
+    """
+
+    def __init__(self, visible=(), texts=None, missing=None, matches=None, headers=None, rows=None):
         self.visible = set(visible)
         self.texts = texts or {}
         self.missing = missing
+        self.matches = matches or {}
+        self.headers = headers or {}
+        self.rows = rows or {}
         self.calls = []
 
     def goto(self, url):
@@ -83,9 +117,9 @@ class FakePage:
         return FakeLocator(self, selector)
 
 
-def fetcher(page, cfg=None):
+def fetcher(page, cfg=None, log=lambda m: None):
     fake = FakeClock()
-    return UiFetcher(cfg or make_cfg(), STEPS, page, lambda m: None, fake.sleep, fake.clock)
+    return UiFetcher(cfg or make_cfg(), STEPS, page, log, fake.sleep, fake.clock)
 
 
 def test_steps_get_placeholders_url_encoded_only_in_goto():
@@ -124,6 +158,30 @@ def test_failed_step_on_login_page_is_login_expired():
 def test_search_that_never_finishes_names_done_selector():
     with pytest.raises(SearchError, match=r"did not finish within 5s .*results\.done: #done"):
         fetcher(FakePage()).run_search("search x", "-1h", "now")
+
+
+def test_table_is_read_from_first_visible_match():
+    page = FakePage(visible={"#done"}, matches={"table": [False, True]},
+                    headers={("table", 1): ["sessionId"]}, rows={("table", 1): [["s1"]]})
+    assert fetcher(page).run_search("search x", "-1h", "now") == [{"sessionId": "s1"}]
+
+
+def test_visible_table_without_rows_is_an_error_not_empty_result():
+    page = FakePage(visible={"#done"}, matches={"table": [True]}, headers={("table", 0): ["sessionId"]})
+    with pytest.raises(SearchError, match=r"results\.table matched a table with no rows.*\[table\]"):
+        fetcher(page).run_search("search x", "-1h", "now")
+
+
+def test_multiple_visible_matches_warn_once():
+    logs = []
+    page = FakePage(visible={"#done"}, matches={"table": [True, True]},
+                    headers={("table", 0): ["a"]}, rows={("table", 0): [["1"]]})
+    fetcher(page, log=logs.append).run_search("search x", "-1h", "now")
+    assert logs.count("  Warning: results.table: 2 visible matches, used #1  [table]") == 1
+
+
+def test_invalid_selector_is_not_visible():
+    assert fetcher(FakePage())._visible("bad[", "results.done") is False
 
 
 def test_selector_report_counts_matches():
