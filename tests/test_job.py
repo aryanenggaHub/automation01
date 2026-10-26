@@ -151,6 +151,9 @@ class FakeFetcher:
     def screenshot(self, path, full_page):
         open(path, "wb").close()
 
+    def content(self):
+        return "<html>rows</html>"
+
 
 def test_probe_reports_columns_selectors_and_screenshot(cfg, browser, monkeypatch):
     monkeypatch.setattr(job, "UiFetcher", FakeFetcher)
@@ -161,6 +164,22 @@ def test_probe_reports_columns_selectors_and_screenshot(cfg, browser, monkeypatc
     assert "  results.done: 1 match(es), visible  [#done]" in lines
     shot = result.log_path.with_name("api_sequence_20261019_093000_probe.png")
     assert shot.exists() and f"Screenshot: {shot}" in lines
+    html = result.log_path.with_name("ui_test_page.html")
+    assert html.read_text(encoding="utf-8") == "<html>rows</html>"
+    assert f"Page HTML (contains search results): {html}" in lines
+
+
+class ClosedPageFetcher(FakeFetcher):
+    def content(self):
+        raise RuntimeError("Target closed")
+
+
+def test_probe_survives_html_failure(cfg, browser, monkeypatch):
+    monkeypatch.setattr(job, "UiFetcher", ClosedPageFetcher)
+    lines = []
+    result = execute(cfg, ["/a"], lines.append, confirmed, session_factory=browser, now=lambda: NOW, probe=True)
+    assert result.exit_code == 0
+    assert "Could not save page HTML: Target closed" in lines
 
 
 def test_probe_failure_exit_1_with_reason(cfg, browser, monkeypatch):

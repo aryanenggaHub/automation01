@@ -190,9 +190,35 @@ class UiFetcher:
             if not selector:
                 continue
             try:
-                count = self.page.locator(selector).count()
-                state = f"{count} match(es), {'visible' if self._visible(selector, name) else 'not visible'}"
+                matches = self.page.locator(selector).all()
+                shown = [m.is_visible() for m in matches]
             except Exception as exc:
-                state = f"invalid selector ({_first_line(exc)})"
-            lines.append(f"  {name}: {state}  [{selector}]")
-        return lines
+                lines.append(f"  {name}: invalid selector ({_first_line(exc)})  [{selector}]")
+                continue
+            if not matches:
+                lines.append(f"  {name}: 0 match(es)  [{selector}]")
+                continue
+            lines.append(f"  {name}: {len(matches)} match(es), {sum(shown)} visible  [{selector}]")
+            used = shown.index(True) if True in shown else -1
+            for i, (match, visible) in enumerate(zip(matches, shown)):
+                box = match.bounding_box() if visible else None
+                where = "visible" if visible else "hidden"
+                if box:
+                    where += f" {box['width']:.0f}x{box['height']:.0f} at ({box['x']:.0f},{box['y']:.0f})"
+                lines.append(f"    #{i + 1} {where}{'  <- used' if i == used else ''}")
+        return lines + self._preview()
+
+    def _preview(self) -> list[str]:
+        """The headers and first rows a run would read from the table the app picks."""
+        r = self.steps.results
+        try:
+            table = self._pick(r.table, "results.table")
+            if table is None:
+                return ["  preview: no visible results.table"]
+            headers = [h.strip() for h in table.locator(r.header).all_inner_texts()]
+            rows = self._page_rows(table)[:3]
+        except Exception as exc:
+            return [f"  preview: could not read the table ({_first_line(exc)})"]
+        return [f"  preview: headers: {', '.join(headers)}"] + [
+            f"  preview: row {i}: {' | '.join(_cell(c) for c in cells)}" for i, cells in enumerate(rows, start=1)
+        ]

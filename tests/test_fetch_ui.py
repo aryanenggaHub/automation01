@@ -10,15 +10,18 @@ from splunk_seq.ui_steps import load_ui_steps, parse_ui_steps
 
 ROOT = Path(__file__).parent.parent
 
+RAW = {
+    "login_page": "#login",
+    "search": [{"goto": "{url}"}],
+    "results": {
+        "done": "#done", "error": "#err", "no_results": "#none",
+        "table": "table", "header": "th", "row": "tr", "cell": "td",
+    },
+}
+
+
 def with_steps(*search):
-    return parse_ui_steps({
-        "login_page": "#login",
-        "search": list(search),
-        "results": {
-            "done": "#done", "error": "#err", "no_results": "#none",
-            "table": "table", "header": "th", "row": "tr", "cell": "td",
-        },
-    })
+    return parse_ui_steps({**RAW, "search": list(search)})
 
 
 STEPS = with_steps(
@@ -209,9 +212,28 @@ def test_pause_is_skipped_in_the_exe(monkeypatch):
 
 def test_selector_report_counts_matches():
     report = fetcher(FakePage(visible={"#done"})).selector_report()
-    assert "  results.done: 1 match(es), visible  [#done]" in report
-    assert "  login_page: 0 match(es), not visible  [#login]" in report
+    i = report.index("  results.done: 1 match(es), 1 visible  [#done]")
+    assert report[i + 1] == "    #1 visible 100x20 at (0,0)  <- used"
+    assert "  login_page: 0 match(es)  [#login]" in report
+    assert "  preview: no visible results.table" in report
     assert not any("results.next" in line for line in report)  # blank selectors are skipped
+
+
+def test_selector_report_lists_every_match():
+    page = FakePage(visible={"#done"}, matches={"table": [False, True]},
+                    headers={("table", 1): ["sessionId", "Timestamp"]},
+                    rows={("table", 1): [["s1", "10:00"], ["s2", "10:01"], ["s3", "x"], ["s4", "y"]]})
+    report = fetcher(page).selector_report()
+    i = report.index("  results.table: 2 match(es), 1 visible  [table]")
+    assert report[i + 1:i + 3] == ["    #1 hidden", "    #2 visible 100x20 at (0,10)  <- used"]
+    assert "  preview: headers: sessionId, Timestamp" in report
+    assert "  preview: row 3: s3 | x" in report and not any("row 4" in line for line in report)
+
+
+def test_selector_report_names_invalid_selector():
+    steps = parse_ui_steps({**RAW, "login_page": "bad["})
+    report = fetcher(FakePage(), steps=steps).selector_report()
+    assert "  login_page: invalid selector (Unexpected token)  [bad[]" in report
 
 
 # ---- real browser against a fake Splunk Search page ----------------------------------
